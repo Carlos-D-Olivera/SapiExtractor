@@ -13,6 +13,8 @@ import java.util.List;
 public class ConnectionManager {
     private Connection currentConnection;
     private DatabaseType currentType;
+    private SpExtractorStrategy currentExtractor;
+    private String connectedDbName;
 
     public void connect(DatabaseType type, String host, String port, String dbName, String user, String password) throws SQLException, ClassNotFoundException {
         disconnect();
@@ -22,6 +24,13 @@ public class ConnectionManager {
         
         currentConnection = DriverManager.getConnection(url, user, password);
         currentType = type;
+        connectedDbName = dbName;
+        
+        currentExtractor = switch (type) {
+            case SQL_SERVER -> new SqlServerExtractor();
+            case MYSQL -> new MySqlExtractor();
+            case POSTGRESQL -> new PostgreSqlExtractor();
+        };
     }
 
     public void disconnect() {
@@ -33,6 +42,8 @@ public class ConnectionManager {
             } finally {
                 currentConnection = null;
                 currentType = null;
+                currentExtractor = null;
+                connectedDbName = null;
             }
         }
     }
@@ -45,17 +56,23 @@ public class ConnectionManager {
         }
     }
     
-    public List<StoredProcedure> extractProcedures() throws SQLException {
+    public String getConnectedDbName() {
+        return connectedDbName;
+    }
+    
+    public List<StoredProcedure> extractProcedureNames() throws SQLException {
         if (!isConnected()) {
             throw new SQLException("No active connection");
         }
-        
-        SpExtractorStrategy extractor = switch (currentType) {
-            case SQL_SERVER -> new SqlServerExtractor();
-            case MYSQL -> new MySqlExtractor();
-            case POSTGRESQL -> new PostgreSqlExtractor();
-        };
-        
-        return extractor.extract(currentConnection);
+        return currentExtractor.extractNames(currentConnection);
+    }
+    
+    public void fillProcedureDefinition(StoredProcedure sp) throws SQLException {
+        if (!isConnected()) {
+            throw new SQLException("No active connection");
+        }
+        if (sp.getDefinition() == null) {
+            currentExtractor.fillDefinition(currentConnection, sp);
+        }
     }
 }

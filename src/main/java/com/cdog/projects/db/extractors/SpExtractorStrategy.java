@@ -6,5 +6,6 @@ import java.sql.SQLException;
 import java.util.List;
 
 public interface SpExtractorStrategy {
-    List<StoredProcedure> extract(Connection connection) throws SQLException;
+    List<StoredProcedure> extractNames(Connection connection) throws SQLException;
+    void fillDefinition(Connection connection, StoredProcedure sp) throws SQLException;
 }

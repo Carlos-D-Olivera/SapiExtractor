@@ -1,5 +1,6 @@
 package com.cdog.projects.exporter;
 
+import com.cdog.projects.db.ConnectionManager;
 import com.cdog.projects.db.StoredProcedure;
 
 import javax.swing.*;
@@ -14,9 +15,11 @@ public class SpExporterService extends SwingWorker<Void, String> {
     private final List<StoredProcedure> procedures;
     private final File targetDirectory;
     private final Consumer<String> statusCallback;
+    private final ConnectionManager connectionManager;
     private int currentProgress = 0;
 
-    public SpExporterService(List<StoredProcedure> procedures, File targetDirectory, Consumer<String> statusCallback) {
+    public SpExporterService(ConnectionManager connectionManager, List<StoredProcedure> procedures, File targetDirectory, Consumer<String> statusCallback) {
+        this.connectionManager = connectionManager;
         this.procedures = procedures;
         this.targetDirectory = targetDirectory;
         this.statusCallback = statusCallback;
@@ -35,6 +38,12 @@ public class SpExporterService extends SwingWorker<Void, String> {
             }
 
             StoredProcedure sp = procedures.get(i);
+            
+            // Lazy load definition if needed
+            if (sp.getDefinition() == null) {
+                connectionManager.fillProcedureDefinition(sp);
+            }
+            
             String safeName = sp.getFullName().replaceAll("[\\\\/:*?\"<>|]", "_");
             File file = new File(targetDirectory, safeName + ".sql");
 

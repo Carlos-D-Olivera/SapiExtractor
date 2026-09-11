@@ -10,14 +10,12 @@ import java.util.List;
 
 public class MySqlExtractor implements SpExtractorStrategy {
     @Override
-    public List<StoredProcedure> extract(Connection connection) throws SQLException {
+    public List<StoredProcedure> extractNames(Connection connection) throws SQLException {
         List<StoredProcedure> procedures = new ArrayList<>();
-        // In MySQL, we typically get routines for the current database schema.
         String query = 
             "SELECT " +
             "    ROUTINE_SCHEMA AS SchemaName, " +
-            "    ROUTINE_NAME AS ProcedureName, " +
-            "    ROUTINE_DEFINITION AS Definition " +
+            "    ROUTINE_NAME AS ProcedureName " +
             "FROM information_schema.ROUTINES " +
             "WHERE ROUTINE_TYPE = 'PROCEDURE' " +
             "  AND ROUTINE_SCHEMA = DATABASE() " +
@@ -25,17 +23,33 @@ public class MySqlExtractor implements SpExtractorStrategy {
 
         try (PreparedStatement stmt = connection.prepareStatement(query);
              ResultSet rs = stmt.executeQuery()) {
-             
             while (rs.next()) {
                 procedures.add(new StoredProcedure(
                     rs.getString("SchemaName"),
                     rs.getString("ProcedureName"),
-                    // In MySQL ROUTINE_DEFINITION often needs CREATE PROCEDURE prepended to be fully reproducible
-                    // or SHOW CREATE PROCEDURE can be used for exact text. For simplicity we use the view.
-                    "CREATE PROCEDURE " + rs.getString("ProcedureName") + "()\n" + rs.getString("Definition")
+                    null
                 ));
             }
         }
         return procedures;
+    }
+
+    @Override
+    public void fillDefinition(Connection connection, StoredProcedure sp) throws SQLException {
+        String query = 
+            "SELECT ROUTINE_DEFINITION " +
+            "FROM information_schema.ROUTINES " +
+            "WHERE ROUTINE_TYPE = 'PROCEDURE' " +
+            "  AND ROUTINE_SCHEMA = ? AND ROUTINE_NAME = ?";
+        try (PreparedStatement stmt = connection.prepareStatement(query)) {
+            stmt.setString(1, sp.getSchema());
+            stmt.setString(2, sp.getName());
+            try (ResultSet rs = stmt.executeQuery()) {
+                if (rs.next()) {
+                    String def = rs.getString("ROUTINE_DEFINITION");
+                    sp.setDefinition("CREATE PROCEDURE " + sp.getName() + "()\n" + def);
+                }
+            }
+        }
     }
 }

@@ -10,30 +10,46 @@ import java.util.List;
 
 public class PostgreSqlExtractor implements SpExtractorStrategy {
     @Override
-    public List<StoredProcedure> extract(Connection connection) throws SQLException {
+    public List<StoredProcedure> extractNames(Connection connection) throws SQLException {
         List<StoredProcedure> procedures = new ArrayList<>();
         String query = 
             "SELECT " +
             "    n.nspname AS SchemaName, " +
-            "    p.proname AS ProcedureName, " +
-            "    pg_get_functiondef(p.oid) AS Definition " +
+            "    p.proname AS ProcedureName " +
             "FROM pg_proc p " +
             "INNER JOIN pg_namespace n ON n.oid = p.pronamespace " +
-            "WHERE p.prokind = 'p' OR p.prokind = 'f' " + // Procedures and functions
+            "WHERE (p.prokind = 'p' OR p.prokind = 'f') " +
             "  AND n.nspname NOT IN ('pg_catalog', 'information_schema') " +
             "ORDER BY SchemaName, ProcedureName";
 
         try (PreparedStatement stmt = connection.prepareStatement(query);
              ResultSet rs = stmt.executeQuery()) {
-             
             while (rs.next()) {
                 procedures.add(new StoredProcedure(
                     rs.getString("SchemaName"),
                     rs.getString("ProcedureName"),
-                    rs.getString("Definition")
+                    null
                 ));
             }
         }
         return procedures;
+    }
+
+    @Override
+    public void fillDefinition(Connection connection, StoredProcedure sp) throws SQLException {
+        String query = 
+            "SELECT pg_get_functiondef(p.oid) AS Definition " +
+            "FROM pg_proc p " +
+            "INNER JOIN pg_namespace n ON n.oid = p.pronamespace " +
+            "WHERE n.nspname = ? AND p.proname = ?";
+        try (PreparedStatement stmt = connection.prepareStatement(query)) {
+            stmt.setString(1, sp.getSchema());
+            stmt.setString(2, sp.getName());
+            try (ResultSet rs = stmt.executeQuery()) {
+                if (rs.next()) {
+                    sp.setDefinition(rs.getString("Definition"));
+                }
+            }
+        }
     }
 }

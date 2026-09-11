@@ -31,16 +31,19 @@ public class ConnectionDialog extends JDialog {
     
     private void setupUI() {
         JPanel panel = new JPanel(new GridBagLayout());
-        panel.setBorder(BorderFactory.createEmptyBorder(20, 20, 20, 20));
+        panel.setBackground(new Color(24, 25, 26));
+        panel.setBorder(BorderFactory.createEmptyBorder(24, 28, 24, 28));
         GridBagConstraints gbc = new GridBagConstraints();
-        gbc.insets = new Insets(5, 5, 5, 5);
+        gbc.insets = new Insets(6, 6, 6, 6);
         gbc.fill = GridBagConstraints.HORIZONTAL;
         
         int row = 0;
         
-        // Engine
+        // Motor
         gbc.gridx = 0; gbc.gridy = row;
-        panel.add(new JLabel("Motor:"), gbc);
+        JLabel lblMotor = new JLabel("Motor:");
+        lblMotor.setForeground(new Color(227, 227, 227));
+        panel.add(lblMotor, gbc);
         cbDbType = new JComboBox<>(DatabaseType.values());
         gbc.gridx = 1; gbc.gridy = row;
         gbc.weightx = 1.0;
@@ -50,7 +53,9 @@ public class ConnectionDialog extends JDialog {
         
         // Host
         gbc.gridx = 0; gbc.gridy = row; gbc.weightx = 0.0;
-        panel.add(new JLabel("Host:"), gbc);
+        JLabel lblHost = new JLabel("Host:");
+        lblHost.setForeground(new Color(227, 227, 227));
+        panel.add(lblHost, gbc);
         txtHost = new FlatTextField();
         txtHost.setText("localhost");
         gbc.gridx = 1; gbc.gridy = row; gbc.weightx = 1.0;
@@ -58,9 +63,11 @@ public class ConnectionDialog extends JDialog {
         
         row++;
         
-        // Port
+        // Puerto
         gbc.gridx = 0; gbc.gridy = row; gbc.weightx = 0.0;
-        panel.add(new JLabel("Puerto:"), gbc);
+        JLabel lblPort = new JLabel("Puerto:");
+        lblPort.setForeground(new Color(227, 227, 227));
+        panel.add(lblPort, gbc);
         txtPort = new FlatTextField();
         gbc.gridx = 1; gbc.gridy = row; gbc.weightx = 1.0;
         panel.add(txtPort, gbc);
@@ -69,7 +76,9 @@ public class ConnectionDialog extends JDialog {
         
         // DB Name
         gbc.gridx = 0; gbc.gridy = row; gbc.weightx = 0.0;
-        panel.add(new JLabel("Base de Datos:"), gbc);
+        JLabel lblDb = new JLabel("Base de Datos:");
+        lblDb.setForeground(new Color(227, 227, 227));
+        panel.add(lblDb, gbc);
         txtDbName = new FlatTextField();
         gbc.gridx = 1; gbc.gridy = row; gbc.weightx = 1.0;
         panel.add(txtDbName, gbc);
@@ -78,7 +87,9 @@ public class ConnectionDialog extends JDialog {
         
         // User
         gbc.gridx = 0; gbc.gridy = row; gbc.weightx = 0.0;
-        panel.add(new JLabel("Usuario:"), gbc);
+        JLabel lblUser = new JLabel("Usuario:");
+        lblUser.setForeground(new Color(227, 227, 227));
+        panel.add(lblUser, gbc);
         txtUser = new FlatTextField();
         gbc.gridx = 1; gbc.gridy = row; gbc.weightx = 1.0;
         panel.add(txtUser, gbc);
@@ -87,7 +98,9 @@ public class ConnectionDialog extends JDialog {
         
         // Password
         gbc.gridx = 0; gbc.gridy = row; gbc.weightx = 0.0;
-        panel.add(new JLabel("Contraseña:"), gbc);
+        JLabel lblPass = new JLabel("Contraseña:");
+        lblPass.setForeground(new Color(227, 227, 227));
+        panel.add(lblPass, gbc);
         txtPassword = new FlatPasswordField();
         gbc.gridx = 1; gbc.gridy = row; gbc.weightx = 1.0;
         panel.add(txtPassword, gbc);
@@ -95,17 +108,25 @@ public class ConnectionDialog extends JDialog {
         row++;
         
         // Buttons
-        JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-        JButton btnConnect = new JButton("Conectar");
-        JButton btnCancel = new JButton("Cancelar");
+        JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 0));
+        buttonPanel.setOpaque(false);
         
-        btnConnect.addActionListener(this::handleConnect);
+        JButton btnCancel = new JButton("Cancelar");
+        btnCancel.putClientProperty("FlatLaf.style", "background: #2D2E30; foreground: #BDC1C6; arc: 12");
+        btnCancel.setCursor(new Cursor(Cursor.HAND_CURSOR));
         btnCancel.addActionListener(e -> dispose());
+        
+        JButton btnConnect = new JButton("Conectar");
+        // Styled with #004A77 background and #C2E7FF foreground
+        btnConnect.putClientProperty("FlatLaf.style", "background: #004A77; foreground: #C2E7FF; hoverBackground: #005B92; arc: 12; font: bold 13");
+        btnConnect.setCursor(new Cursor(Cursor.HAND_CURSOR));
+        btnConnect.addActionListener(this::handleConnect);
         
         buttonPanel.add(btnCancel);
         buttonPanel.add(btnConnect);
         
         gbc.gridx = 0; gbc.gridy = row; gbc.gridwidth = 2;
+        gbc.insets = new Insets(16, 6, 4, 6);
         panel.add(buttonPanel, gbc);
         
         // Add dynamic port update
