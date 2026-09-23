@@ -66,11 +66,18 @@ public class PillActionButton extends JButton {
 
     @Override
     public Dimension getPreferredSize() {
-        FontMetrics fm = getFontMetrics(getFont());
+        Font font = getFont() != null ? getFont() : new Font("SansSerif", Font.BOLD, 12);
+        FontMetrics fm = getFontMetrics(font);
         String text = getText();
         int textWidth = (text != null) ? fm.stringWidth(text) : 40;
         int iconWidth = (getIcon() != null) ? getIcon().getIconWidth() + getIconTextGap() : 0;
-        return new Dimension(Math.max(100, textWidth + iconWidth + 28), 32);
+        // 16px horizontal padding on each side for plenty of room
+        return new Dimension(textWidth + iconWidth + 32, 32);
+    }
+
+    @Override
+    public Dimension getMinimumSize() {
+        return getPreferredSize();
     }
 
     @Override
@@ -82,11 +89,23 @@ public class PillActionButton extends JButton {
         int width = getWidth();
         int height = getHeight();
 
+        // Background pill
         Color bg = pressed ? BG_PRESSED : (hovered ? BG_HOVER : BG_NORMAL);
         g2.setColor(bg);
         g2.fill(new RoundRectangle2D.Float(0, 0, width, height, height, height));
 
+        // Draw centered text cleanly
+        g2.setColor(TEXT_COLOR);
+        g2.setFont(getFont());
+        FontMetrics fm = g2.getFontMetrics();
+        String text = getText();
+        if (text != null && !text.isEmpty()) {
+            int textWidth = fm.stringWidth(text);
+            int textX = (width - textWidth) / 2;
+            int textY = (height - fm.getHeight()) / 2 + fm.getAscent();
+            g2.drawString(text, textX, textY);
+        }
+
         g2.dispose();
-        super.paintComponent(g);
     }
 }

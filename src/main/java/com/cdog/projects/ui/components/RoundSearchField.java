@@ -31,17 +31,18 @@ public class RoundSearchField extends FlatTextField {
             "caretColor: #E3E3E3; " +
             "borderColor: #1E1F20; " +
             "focusedBorderColor: #004A77; " +
-            "margin: 12,24,12,24");
+            "margin: 8,20,8,20"); // Reduced margin slightly to fit better horizontally
 
         setBackground(BG_COLOR);
         setForeground(TEXT_COLOR);
         setCaretColor(TEXT_COLOR);
         setSelectionColor(SELECTION_BG);
         setSelectedTextColor(SELECTION_FG);
-        setFont(getFont().deriveFont(16f));
+        setFont(getFont().deriveFont(15f));
         setOpaque(false);
 
-        setPreferredSize(new Dimension(660, 58));
+        // Allow layout manager to shrink field if needed by setting height only via preferredSize
+        setPreferredSize(new Dimension(0, 52));
 
         addFocusListener(new FocusAdapter() {
             @Override

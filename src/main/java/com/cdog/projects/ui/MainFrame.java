@@ -50,14 +50,20 @@ public class MainFrame extends JFrame {
 
     public MainFrame() {
         setTitle("SpExtractor");
-        setSize(992, 661);
-        setMinimumSize(new Dimension(800, 550));
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-        setLocationRelativeTo(null);
         
         setupUI();
         
-        SwingUtilities.invokeLater(() -> searchField.requestFocusInWindow());
+        // Use setPreferredSize and setMinimumSize to 610x510
+        setPreferredSize(new Dimension(610, 510));
+        setMinimumSize(new Dimension(610, 510));
+        setSize(new Dimension(610, 510));
+        setLocationRelativeTo(null);
+        
+        SwingUtilities.invokeLater(() -> {
+            setSize(new Dimension(610, 510));
+            searchField.requestFocusInWindow();
+        });
     }
 
     private void setupUI() {
@@ -75,7 +81,7 @@ public class MainFrame extends JFrame {
         topBar.setOpaque(false);
         
         btnDownload = new IconButton(UIManager.getIcon("FileChooser.upFolderIcon"));
-        btnDownload.setText("Descargar todos");
+        btnDownload.setText("Descargar");
         btnDownload.addActionListener(e -> exportProcedures());
         
         btnConnection = new ConnectionButton();
@@ -96,12 +102,13 @@ public class MainFrame extends JFrame {
 
         // Title: "Sp Extractor" (as shown in Img2)
         titleLabel = new JLabel("Sp Extractor", SwingConstants.CENTER);
-        titleLabel.setFont(titleLabel.getFont().deriveFont(Font.BOLD, 36f));
+        titleLabel.setFont(titleLabel.getFont().deriveFont(Font.BOLD, 32f));
         titleLabel.setForeground(new Color(227, 227, 227));
         gbc.gridy = 0;
         gbc.weightx = 1.0;
         gbc.weighty = 0.0;
-        gbc.insets = new Insets(20, 50, 15, 50);
+        // Insets to fit nicely on 610px width
+        gbc.insets = new Insets(10, 30, 10, 30);
         centerContainer.add(titleLabel, gbc);
 
         // Search Field (capsule pill, #1E1F20, placeholder "Buscar procedimientos...")
@@ -113,7 +120,7 @@ public class MainFrame extends JFrame {
         });
         gbc.gridy = 1;
         gbc.weighty = 0.0;
-        gbc.insets = new Insets(0, 50, 15, 50);
+        gbc.insets = new Insets(0, 30, 10, 30);
         centerContainer.add(searchField, gbc);
 
         // List
@@ -151,23 +158,23 @@ public class MainFrame extends JFrame {
 
         listScrollPane = new JScrollPane(listProcedures);
         listScrollPane.getViewport().setBackground(new Color(30, 31, 32));
-        listScrollPane.setPreferredSize(new Dimension(660, 260));
+        listScrollPane.setPreferredSize(new Dimension(0, 180));
         listScrollPane.setVisible(false);
         listScrollPane.setBorder(BorderFactory.createLineBorder(new Color(45, 46, 48), 1, true));
         
         gbc.gridy = 2;
         gbc.weighty = 0.5;
         gbc.fill = GridBagConstraints.BOTH;
-        gbc.insets = new Insets(0, 50, 15, 50);
+        gbc.insets = new Insets(0, 30, 15, 30);
         centerContainer.add(listScrollPane, gbc);
 
-        // --- Preview Container (Toolbar + Preview Text Area with Increased Height) ---
-        previewContainer = new JPanel(new BorderLayout(0, 10));
+        // --- Preview Container (Toolbar + Preview Text Area) ---
+        previewContainer = new JPanel(new BorderLayout(0, 8));
         previewContainer.setOpaque(false);
         previewContainer.setVisible(false);
 
         // Preview Toolbar
-        JPanel previewToolbar = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 0));
+        JPanel previewToolbar = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
         previewToolbar.setOpaque(false);
 
         btnCopySp = new PillActionButton("Copiar SP");
@@ -201,7 +208,7 @@ public class MainFrame extends JFrame {
         
         previewScrollPane = new JScrollPane(previewArea);
         previewScrollPane.getViewport().setBackground(new Color(24, 25, 26));
-        previewScrollPane.setPreferredSize(new Dimension(660, 420));
+        previewScrollPane.setPreferredSize(new Dimension(0, 220));
         previewScrollPane.setBorder(BorderFactory.createLineBorder(new Color(45, 46, 48), 1, true));
         
         previewContainer.add(previewScrollPane, BorderLayout.CENTER);
@@ -209,8 +216,15 @@ public class MainFrame extends JFrame {
         gbc.gridy = 3;
         gbc.weighty = 1.0;
         gbc.fill = GridBagConstraints.BOTH;
-        gbc.insets = new Insets(0, 50, 20, 50);
+        gbc.insets = new Insets(0, 30, 20, 30);
         centerContainer.add(previewContainer, gbc);
+
+        // Fill remaining space
+        JPanel filler = new JPanel();
+        filler.setOpaque(false);
+        gbc.gridy = 4;
+        gbc.weighty = 0.01;
+        centerContainer.add(filler, gbc);
 
         mainPanel.add(centerContainer, BorderLayout.CENTER);
     }
@@ -368,12 +382,12 @@ public class MainFrame extends JFrame {
         chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
         
         if (chooser.showSaveDialog(this) == JFileChooser.APPROVE_OPTION) {
-            File targetDir = chooser.getSelectedFile();
+            File targetFile = chooser.getSelectedFile();
             
             ProgressMonitor monitor = new ProgressMonitor(this, "Descargando Procedimientos", "", 0, 100);
             monitor.setProgress(0);
             
-            SpExporterService service = new SpExporterService(connectionManager, allProcedures, targetDir, status -> {
+            SpExporterService service = new SpExporterService(connectionManager, allProcedures, targetFile, status -> {
                 SwingUtilities.invokeLater(() -> monitor.setNote(status));
             }) {
                 @Override
@@ -388,7 +402,7 @@ public class MainFrame extends JFrame {
                 protected void done() {
                     monitor.close();
                     if (!isCancelled()) {
-                        JOptionPane.showMessageDialog(MainFrame.this, "¡Descarga completada con éxito en:\n" + targetDir.getAbsolutePath());
+                        JOptionPane.showMessageDialog(MainFrame.this, "¡Descarga completada con éxito en:\n" + targetFile.getAbsolutePath());
                     }
                 }
             };
