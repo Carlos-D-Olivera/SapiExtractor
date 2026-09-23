@@ -1,5 +1,5 @@
 @echo off
-setlocal
+setlocal enabledelayedexpansion
 echo ===================================================
 echo           Compilando SpExtractor a .EXE
 echo ===================================================
@@ -10,6 +10,19 @@ set "MAVEN_CMD=C:\Program Files\JetBrains\IntelliJ IDEA 2025.2\plugins\maven-plu
 
 if not exist "%MAVEN_CMD%" (
     set "MAVEN_CMD=mvn"
+)
+
+:: Deteccion de icono personalizado
+set "ICON_PARAM="
+if exist "icon.ico" (
+    set "ICON_PARAM=--icon icon.ico"
+    echo [INFO] Icono detectado: icon.ico
+) else if exist "SpExtractor.ico" (
+    set "ICON_PARAM=--icon SpExtractor.ico"
+    echo [INFO] Icono detectado: SpExtractor.ico
+) else if exist "app.ico" (
+    set "ICON_PARAM=--icon app.ico"
+    echo [INFO] Icono detectado: app.ico
 )
 
 echo.
@@ -31,7 +44,8 @@ if exist "dist" rmdir /s /q "dist"
     --name "SpExtractor" ^
     --main-jar "SpExtractor-1.0-SNAPSHOT.jar" ^
     --main-class "com.cdog.projects.Main" ^
-    --dest "dist"
+    --dest "dist" ^
+    !ICON_PARAM!
 
 if %ERRORLEVEL% NEQ 0 (
     echo [ERROR] Fallo jpackage al crear el .exe.
