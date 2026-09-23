@@ -6,6 +6,7 @@ import com.cdog.projects.exporter.SpExporterService;
 import com.cdog.projects.ui.components.ConnectionButton;
 import com.cdog.projects.ui.components.GradientPanel;
 import com.cdog.projects.ui.components.IconButton;
+import com.cdog.projects.ui.components.PillActionButton;
 import com.cdog.projects.ui.components.RoundSearchField;
 import com.cdog.projects.ui.dialogs.ConnectionDialog;
 
@@ -14,9 +15,14 @@ import javax.swing.border.EmptyBorder;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import java.awt.*;
+import java.awt.datatransfer.StringSelection;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.io.File;
+import java.io.FileWriter;
+import java.nio.charset.StandardCharsets;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -24,6 +30,7 @@ import java.util.stream.Collectors;
 public class MainFrame extends JFrame {
     private final ConnectionManager connectionManager = new ConnectionManager();
     private List<StoredProcedure> allProcedures = new ArrayList<>();
+    private StoredProcedure currentPreviewSp = null;
     
     private ConnectionButton btnConnection;
     private IconButton btnDownload;
@@ -34,8 +41,12 @@ public class MainFrame extends JFrame {
     private JList<StoredProcedure> listProcedures;
     private JScrollPane listScrollPane;
     
+    private JPanel previewContainer;
     private JTextArea previewArea;
     private JScrollPane previewScrollPane;
+    private PillActionButton btnCopySp;
+    private PillActionButton btnSaveAs;
+    private PillActionButton btnOpenInSs;
 
     public MainFrame() {
         setTitle("SpExtractor");
@@ -64,7 +75,7 @@ public class MainFrame extends JFrame {
         topBar.setOpaque(false);
         
         btnDownload = new IconButton(UIManager.getIcon("FileChooser.upFolderIcon"));
-        btnDownload.setText("Descargar");
+        btnDownload.setText("Descargar todos");
         btnDownload.addActionListener(e -> exportProcedures());
         
         btnConnection = new ConnectionButton();
@@ -90,7 +101,7 @@ public class MainFrame extends JFrame {
         gbc.gridy = 0;
         gbc.weightx = 1.0;
         gbc.weighty = 0.0;
-        gbc.insets = new Insets(40, 50, 20, 50);
+        gbc.insets = new Insets(20, 50, 15, 50);
         centerContainer.add(titleLabel, gbc);
 
         // Search Field (capsule pill, #1E1F20, placeholder "Buscar procedimientos...")
@@ -147,10 +158,37 @@ public class MainFrame extends JFrame {
         gbc.gridy = 2;
         gbc.weighty = 0.5;
         gbc.fill = GridBagConstraints.BOTH;
-        gbc.insets = new Insets(0, 50, 20, 50);
+        gbc.insets = new Insets(0, 50, 15, 50);
         centerContainer.add(listScrollPane, gbc);
 
-        // Preview Area
+        // --- Preview Container (Toolbar + Preview Text Area with Increased Height) ---
+        previewContainer = new JPanel(new BorderLayout(0, 10));
+        previewContainer.setOpaque(false);
+        previewContainer.setVisible(false);
+
+        // Preview Toolbar
+        JPanel previewToolbar = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 0));
+        previewToolbar.setOpaque(false);
+
+        btnCopySp = new PillActionButton("Copiar SP");
+        btnCopySp.setToolTipText("Copiar definición al portapapeles");
+        btnCopySp.addActionListener(e -> copyCurrentSp());
+
+        btnSaveAs = new PillActionButton("Guardar como");
+        btnSaveAs.setToolTipText("Guardar SP como archivo .sql");
+        btnSaveAs.addActionListener(e -> saveCurrentSpAs());
+
+        btnOpenInSs = new PillActionButton("Abrir en SQL Server");
+        btnOpenInSs.setToolTipText("Abrir archivo SQL en SQL Server / Editor predeterminado");
+        btnOpenInSs.addActionListener(e -> openCurrentSpInSqlServer());
+
+        previewToolbar.add(btnCopySp);
+        previewToolbar.add(btnSaveAs);
+        previewToolbar.add(btnOpenInSs);
+
+        previewContainer.add(previewToolbar, BorderLayout.NORTH);
+
+        // Preview Text Area
         previewArea = new JTextArea();
         previewArea.setEditable(false);
         previewArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 13));
@@ -159,24 +197,20 @@ public class MainFrame extends JFrame {
         previewArea.setCaretColor(new Color(227, 227, 227));
         previewArea.setSelectionColor(new Color(0, 74, 119));
         previewArea.setSelectedTextColor(new Color(194, 231, 255));
-        previewArea.setMargin(new Insets(12, 14, 12, 14));
+        previewArea.setMargin(new Insets(14, 16, 14, 16));
         
         previewScrollPane = new JScrollPane(previewArea);
         previewScrollPane.getViewport().setBackground(new Color(24, 25, 26));
-        previewScrollPane.setPreferredSize(new Dimension(660, 320));
-        previewScrollPane.setVisible(false);
+        previewScrollPane.setPreferredSize(new Dimension(660, 420));
         previewScrollPane.setBorder(BorderFactory.createLineBorder(new Color(45, 46, 48), 1, true));
         
+        previewContainer.add(previewScrollPane, BorderLayout.CENTER);
+
         gbc.gridy = 3;
         gbc.weighty = 1.0;
-        centerContainer.add(previewScrollPane, gbc);
-
-        // Push everything up nicely if there's space left
-        JPanel filler = new JPanel();
-        filler.setOpaque(false);
-        gbc.gridy = 4;
-        gbc.weighty = 2.0;
-        centerContainer.add(filler, gbc);
+        gbc.fill = GridBagConstraints.BOTH;
+        gbc.insets = new Insets(0, 50, 20, 50);
+        centerContainer.add(previewContainer, gbc);
 
         mainPanel.add(centerContainer, BorderLayout.CENTER);
     }
@@ -188,7 +222,7 @@ public class MainFrame extends JFrame {
         
         if (query.isEmpty()) {
             listScrollPane.setVisible(false);
-            previewScrollPane.setVisible(false);
+            previewContainer.setVisible(false);
         } else {
             List<StoredProcedure> filtered = allProcedures.stream()
                 .filter(sp -> sp.getFullName().toLowerCase().contains(query))
@@ -200,7 +234,7 @@ public class MainFrame extends JFrame {
             }
             
             listScrollPane.setVisible(true);
-            previewScrollPane.setVisible(false); // hide preview while typing
+            previewContainer.setVisible(false); // hide preview while typing
         }
         revalidate();
         repaint();
@@ -218,7 +252,7 @@ public class MainFrame extends JFrame {
             allProcedures.clear();
             listModel.clear();
             listScrollPane.setVisible(false);
-            previewScrollPane.setVisible(false);
+            previewContainer.setVisible(false);
             revalidate();
             repaint();
         }
@@ -235,6 +269,7 @@ public class MainFrame extends JFrame {
 
     private void showPreview(StoredProcedure sp) {
         if (sp == null) return;
+        currentPreviewSp = sp;
         
         try {
             if (sp.getDefinition() == null) {
@@ -247,12 +282,78 @@ public class MainFrame extends JFrame {
             previewArea.setCaretPosition(0);
             
             listScrollPane.setVisible(false);
-            previewScrollPane.setVisible(true);
+            previewContainer.setVisible(true);
             revalidate();
             repaint();
         } catch (Exception ex) {
             setCursor(Cursor.getDefaultCursor());
             JOptionPane.showMessageDialog(this, "Error obteniendo definición:\n" + ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
+    private void copyCurrentSp() {
+        String content = previewArea.getText();
+        if (content == null || content.isEmpty()) return;
+
+        Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new StringSelection(content), null);
+        
+        String originalText = btnCopySp.getText();
+        btnCopySp.setText("✓ Copiado");
+        Timer timer = new Timer(1500, e -> btnCopySp.setText(originalText));
+        timer.setRepeats(false);
+        timer.start();
+    }
+
+    private void saveCurrentSpAs() {
+        if (currentPreviewSp == null) return;
+
+        String dateStr = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyyMMdd"));
+        String defaultFileName = String.format("%s_%s.%s.sql", dateStr, currentPreviewSp.getSchema(), currentPreviewSp.getName());
+
+        JFileChooser chooser = new JFileChooser();
+        chooser.setDialogTitle("Guardar procedimiento como");
+        chooser.setSelectedFile(new File(defaultFileName));
+
+        if (chooser.showSaveDialog(this) == JFileChooser.APPROVE_OPTION) {
+            File targetFile = chooser.getSelectedFile();
+            if (!targetFile.getName().toLowerCase().endsWith(".sql")) {
+                targetFile = new File(targetFile.getParentFile(), targetFile.getName() + ".sql");
+            }
+
+            try (FileWriter writer = new FileWriter(targetFile, StandardCharsets.UTF_8)) {
+                writer.write(previewArea.getText());
+                JOptionPane.showMessageDialog(this, "Guardado exitosamente:\n" + targetFile.getAbsolutePath(), "Archivo guardado", JOptionPane.INFORMATION_MESSAGE);
+            } catch (Exception ex) {
+                JOptionPane.showMessageDialog(this, "Error al guardar el archivo:\n" + ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
+            }
+        }
+    }
+
+    private void openCurrentSpInSqlServer() {
+        if (currentPreviewSp == null) return;
+
+        try {
+            String dateStr = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyyMMdd"));
+            String prefix = String.format("%s_%s.%s_", dateStr, currentPreviewSp.getSchema(), currentPreviewSp.getName());
+            
+            // Clean invalid filename chars for prefix
+            prefix = prefix.replaceAll("[^a-zA-Z0-9_.-]", "_");
+            if (prefix.length() < 3) prefix = "sp_temp_";
+
+            File tempFile = File.createTempFile(prefix, ".sql");
+            tempFile.deleteOnExit();
+
+            try (FileWriter writer = new FileWriter(tempFile, StandardCharsets.UTF_8)) {
+                writer.write(previewArea.getText());
+            }
+
+            if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.OPEN)) {
+                Desktop.getDesktop().open(tempFile);
+            } else {
+                new ProcessBuilder("cmd", "/c", "start", "", tempFile.getAbsolutePath()).start();
+            }
+        } catch (Exception ex) {
+            JOptionPane.showMessageDialog(this, "No se pudo abrir el archivo en el editor SQL:\n" + ex.getMessage(), "Error al abrir", JOptionPane.ERROR_MESSAGE);
         }
     }
 

@@ -7,7 +7,10 @@ import com.cdog.projects.db.extractors.SqlServerExtractor;
 
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Statement;
+import java.util.ArrayList;
 import java.util.List;
 
 public class ConnectionManager {
@@ -31,6 +34,32 @@ public class ConnectionManager {
             case MYSQL -> new MySqlExtractor();
             case POSTGRESQL -> new PostgreSqlExtractor();
         };
+    }
+
+    public List<String> listDatabases(DatabaseType type, String host, String port, String user, String password) throws SQLException, ClassNotFoundException {
+        Class.forName(type.getDriverClass());
+        String url = type.buildServerUrl(host, port);
+        
+        List<String> dbs = new ArrayList<>();
+        try (Connection conn = DriverManager.getConnection(url, user, password);
+             Statement stmt = conn.createStatement()) {
+            
+            String query = switch (type) {
+                case SQL_SERVER -> "SELECT name FROM sys.databases WHERE state = 0 ORDER BY name";
+                case MYSQL -> "SHOW DATABASES";
+                case POSTGRESQL -> "SELECT datname FROM pg_database WHERE datistemplate = false ORDER BY datname";
+            };
+            
+            try (ResultSet rs = stmt.executeQuery(query)) {
+                while (rs.next()) {
+                    String name = rs.getString(1);
+                    if (name != null && !name.isBlank()) {
+                        dbs.add(name);
+                    }
+                }
+            }
+        }
+        return dbs;
     }
 
     public void disconnect() {
