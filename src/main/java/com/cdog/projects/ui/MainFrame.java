@@ -305,9 +305,28 @@ public class MainFrame extends JFrame {
         }
     }
 
+    private String getSpTextWithHeader(String originalText) {
+        if (currentPreviewSp == null) return originalText;
+
+        String fullName = currentPreviewSp.getSchema().isEmpty() 
+            ? String.format("[%s]", currentPreviewSp.getName()) 
+            : String.format("[%s].[%s]", currentPreviewSp.getSchema(), currentPreviewSp.getName());
+
+        String header = String.format(
+                "IF EXISTS (SELECT * FROM dbo.sysobjects WHERE id = OBJECT_ID(N'%s') AND OBJECTPROPERTY(id, N'IsProcedure') = 1)\n" +
+                "BEGIN\n" +
+                "DROP PROCEDURE %s \n" +
+                "END\n" +
+                "GO\n\n", fullName, fullName);
+
+        return header + originalText;
+    }
+
     private void copyCurrentSp() {
         String content = previewArea.getText();
         if (content == null || content.isEmpty()) return;
+
+        content = getSpTextWithHeader(content);
 
         Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new StringSelection(content), null);
         
@@ -335,7 +354,7 @@ public class MainFrame extends JFrame {
             }
 
             try (FileWriter writer = new FileWriter(targetFile, StandardCharsets.UTF_8)) {
-                writer.write(previewArea.getText());
+                writer.write(getSpTextWithHeader(previewArea.getText()));
                 JOptionPane.showMessageDialog(this, "Guardado exitosamente:\n" + targetFile.getAbsolutePath(), "Archivo guardado", JOptionPane.INFORMATION_MESSAGE);
             } catch (Exception ex) {
                 JOptionPane.showMessageDialog(this, "Error al guardar el archivo:\n" + ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
@@ -358,7 +377,7 @@ public class MainFrame extends JFrame {
             tempFile.deleteOnExit();
 
             try (FileWriter writer = new FileWriter(tempFile, StandardCharsets.UTF_8)) {
-                writer.write(previewArea.getText());
+                writer.write(getSpTextWithHeader(previewArea.getText()));
             }
 
             if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.OPEN)) {
