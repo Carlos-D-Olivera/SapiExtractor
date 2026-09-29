@@ -10,6 +10,7 @@ import com.cdog.projects.ui.components.PillActionButton;
 import com.cdog.projects.ui.components.RoundSearchField;
 import com.cdog.projects.ui.dialogs.ConnectionDialog;
 
+import javax.imageio.ImageIO;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import javax.swing.event.DocumentEvent;
@@ -20,6 +21,7 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.io.File;
 import java.io.FileWriter;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
@@ -52,6 +54,7 @@ public class MainFrame extends JFrame {
         setTitle("SpExtractor");
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         
+        loadAppIcon();
         setupUI();
         
         // Use setPreferredSize and setMinimumSize to 610x510
@@ -64,6 +67,31 @@ public class MainFrame extends JFrame {
             setSize(new Dimension(610, 510));
             searchField.requestFocusInWindow();
         });
+    }
+
+    private void loadAppIcon() {
+        try {
+            // Intentar cargar icon.png desde recursos (empaquetado en el JAR)
+            InputStream is = getClass().getResourceAsStream("/icon.png");
+            if (is != null) {
+                Image img = ImageIO.read(is);
+                if (img != null) {
+                    setIconImage(img);
+                    return;
+                }
+            }
+            // Fallback: buscar archivo local en disco
+            File iconPng = new File("src/main/resources/icon.png");
+            if (iconPng.exists()) {
+                setIconImage(ImageIO.read(iconPng));
+                return;
+            }
+            File iconIco = new File("SpExtractor.ico");
+            if (iconIco.exists()) {
+                setIconImage(Toolkit.getDefaultToolkit().getImage(iconIco.getAbsolutePath()));
+            }
+        } catch (Exception ignored) {
+        }
     }
 
     private void setupUI() {
@@ -81,7 +109,7 @@ public class MainFrame extends JFrame {
         topBar.setOpaque(false);
         
         btnDownload = new IconButton(UIManager.getIcon("FileChooser.upFolderIcon"));
-        btnDownload.setText("Descargar");
+        btnDownload.setText("Descargar todos");
         btnDownload.addActionListener(e -> exportProcedures());
         
         btnConnection = new ConnectionButton();
