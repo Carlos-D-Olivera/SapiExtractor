@@ -47,7 +47,9 @@ public class MySqlExtractor implements SpExtractorStrategy {
             try (ResultSet rs = stmt.executeQuery()) {
                 if (rs.next()) {
                     String def = rs.getString("ROUTINE_DEFINITION");
-                    sp.setDefinition("CREATE PROCEDURE " + sp.getName() + "()\n" + def);
+                    sp.setDefinition(def != null ? "CREATE PROCEDURE " + sp.getName() + "()\n" + def : null);
+                } else {
+                    sp.setDefinition(null);
                 }
             }
         }

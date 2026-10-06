@@ -46,6 +46,7 @@ public class MainFrame extends JFrame {
     private JPanel previewContainer;
     private JTextArea previewArea;
     private JScrollPane previewScrollPane;
+    private PillActionButton btnRefresh;
     private PillActionButton btnCopySp;
     private PillActionButton btnSaveAs;
     private PillActionButton btnOpenInSs;
@@ -146,6 +147,21 @@ public class MainFrame extends JFrame {
             public void removeUpdate(DocumentEvent e) { handleSearch(); }
             public void changedUpdate(DocumentEvent e) { handleSearch(); }
         });
+        searchField.addActionListener(e -> {
+            if (listProcedures.getSelectedValue() != null) {
+                showPreview(listProcedures.getSelectedValue());
+            } else if (listModel.getSize() > 0) {
+                showPreview(listModel.getElementAt(0));
+            }
+        });
+        searchField.addFocusListener(new java.awt.event.FocusAdapter() {
+            @Override
+            public void focusGained(java.awt.event.FocusEvent e) {
+                if (!searchField.getText().trim().isEmpty() && !listScrollPane.isVisible()) {
+                    handleSearch();
+                }
+            }
+        });
         gbc.gridy = 1;
         gbc.weighty = 0.0;
         gbc.insets = new Insets(0, 30, 10, 30);
@@ -183,6 +199,14 @@ public class MainFrame extends JFrame {
                 }
             }
         });
+        listProcedures.addKeyListener(new java.awt.event.KeyAdapter() {
+            @Override
+            public void keyPressed(java.awt.event.KeyEvent e) {
+                if (e.getKeyCode() == java.awt.event.KeyEvent.VK_ENTER) {
+                    showPreview(listProcedures.getSelectedValue());
+                }
+            }
+        });
 
         listScrollPane = new JScrollPane(listProcedures);
         listScrollPane.getViewport().setBackground(new Color(30, 31, 32));
@@ -205,6 +229,14 @@ public class MainFrame extends JFrame {
         JPanel previewToolbar = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
         previewToolbar.setOpaque(false);
 
+        btnRefresh = new PillActionButton("Recargar");
+        btnRefresh.setToolTipText("Volver a consultar el SP en la base de datos (F5)");
+        btnRefresh.addActionListener(e -> {
+            if (currentPreviewSp != null) {
+                showPreview(currentPreviewSp);
+            }
+        });
+
         btnCopySp = new PillActionButton("Copiar SP");
         btnCopySp.setToolTipText("Copiar definición al portapapeles");
         btnCopySp.addActionListener(e -> copyCurrentSp());
@@ -217,9 +249,33 @@ public class MainFrame extends JFrame {
         btnOpenInSs.setToolTipText("Abrir archivo SQL en SQL Server / Editor predeterminado");
         btnOpenInSs.addActionListener(e -> openCurrentSpInSqlServer());
 
+        previewToolbar.add(btnRefresh);
         previewToolbar.add(btnCopySp);
         previewToolbar.add(btnSaveAs);
         previewToolbar.add(btnOpenInSs);
+
+        // Keyboard shortcuts: F5 to reload current SP, Escape to return to list
+        getRootPane().registerKeyboardAction(
+            e -> {
+                if (previewContainer.isVisible() && currentPreviewSp != null) {
+                    showPreview(currentPreviewSp);
+                }
+            },
+            KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_F5, 0),
+            JComponent.WHEN_IN_FOCUSED_WINDOW
+        );
+
+        getRootPane().registerKeyboardAction(
+            e -> {
+                if (previewContainer.isVisible() && !searchField.getText().trim().isEmpty()) {
+                    previewContainer.setVisible(false);
+                    listScrollPane.setVisible(true);
+                    searchField.requestFocusInWindow();
+                }
+            },
+            KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_ESCAPE, 0),
+            JComponent.WHEN_IN_FOCUSED_WINDOW
+        );
 
         previewContainer.add(previewToolbar, BorderLayout.NORTH);
 
@@ -314,9 +370,10 @@ public class MainFrame extends JFrame {
         currentPreviewSp = sp;
         
         try {
-            if (sp.getDefinition() == null) {
-                setCursor(Cursor.getPredefinedCursor(Cursor.WAIT_CURSOR));
-                connectionManager.fillProcedureDefinition(sp);
+            setCursor(Cursor.getPredefinedCursor(Cursor.WAIT_CURSOR));
+            try {
+                connectionManager.fillProcedureDefinition(sp, true);
+            } finally {
                 setCursor(Cursor.getDefaultCursor());
             }
             
@@ -394,6 +451,15 @@ public class MainFrame extends JFrame {
         if (currentPreviewSp == null) return;
 
         try {
+            setCursor(Cursor.getPredefinedCursor(Cursor.WAIT_CURSOR));
+            try {
+                connectionManager.fillProcedureDefinition(currentPreviewSp, true);
+            } finally {
+                setCursor(Cursor.getDefaultCursor());
+            }
+            previewArea.setText(currentPreviewSp.getDefinition() != null ? currentPreviewSp.getDefinition() : "-- Sin definición disponible");
+            previewArea.setCaretPosition(0);
+
             String dateStr = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyyMMdd"));
             String prefix = String.format("%s_%s.%s_", dateStr, currentPreviewSp.getSchema(), currentPreviewSp.getName());
             
@@ -414,6 +480,7 @@ public class MainFrame extends JFrame {
                 new ProcessBuilder("cmd", "/c", "start", "", tempFile.getAbsolutePath()).start();
             }
         } catch (Exception ex) {
+            setCursor(Cursor.getDefaultCursor());
             JOptionPane.showMessageDialog(this, "No se pudo abrir el archivo en el editor SQL:\n" + ex.getMessage(), "Error al abrir", JOptionPane.ERROR_MESSAGE);
         }
     }

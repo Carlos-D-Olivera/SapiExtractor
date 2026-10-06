@@ -97,10 +97,14 @@ public class ConnectionManager {
     }
     
     public void fillProcedureDefinition(StoredProcedure sp) throws SQLException {
+        fillProcedureDefinition(sp, true);
+    }
+
+    public void fillProcedureDefinition(StoredProcedure sp, boolean forceRefresh) throws SQLException {
         if (!isConnected()) {
             throw new SQLException("No active connection");
         }
-        if (sp.getDefinition() == null) {
+        if (forceRefresh || sp.getDefinition() == null) {
             currentExtractor.fillDefinition(currentConnection, sp);
         }
     }

@@ -45,6 +45,8 @@ public class SqlServerExtractor implements SpExtractorStrategy {
             try (ResultSet rs = stmt.executeQuery()) {
                 if (rs.next()) {
                     sp.setDefinition(rs.getString("definition"));
+                } else {
+                    sp.setDefinition(null);
                 }
             }
         }

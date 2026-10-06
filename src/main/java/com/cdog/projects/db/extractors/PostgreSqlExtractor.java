@@ -48,6 +48,8 @@ public class PostgreSqlExtractor implements SpExtractorStrategy {
             try (ResultSet rs = stmt.executeQuery()) {
                 if (rs.next()) {
                     sp.setDefinition(rs.getString("Definition"));
+                } else {
+                    sp.setDefinition(null);
                 }
             }
         }
