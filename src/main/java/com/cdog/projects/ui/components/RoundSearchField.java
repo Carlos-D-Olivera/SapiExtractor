@@ -52,6 +52,11 @@ public class RoundSearchField extends FlatTextField {
         });
     }
 
+    public void setPlaceholder(String placeholder) {
+        putClientProperty("JTextField.placeholderText", placeholder);
+        repaint();
+    }
+
     @Override
     protected void paintComponent(Graphics g) {
         Graphics2D g2 = (Graphics2D) g.create();

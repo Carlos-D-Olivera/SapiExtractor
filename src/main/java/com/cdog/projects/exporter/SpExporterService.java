@@ -1,7 +1,7 @@
 package com.cdog.projects.exporter;
 
 import com.cdog.projects.db.ConnectionManager;
-import com.cdog.projects.db.StoredProcedure;
+import com.cdog.projects.db.DbObject;
 
 import javax.swing.*;
 import java.io.BufferedWriter;
@@ -12,15 +12,15 @@ import java.util.List;
 import java.util.function.Consumer;
 
 public class SpExporterService extends SwingWorker<Void, String> {
-    private final List<StoredProcedure> procedures;
+    private final List<? extends DbObject> objects;
     private final File targetDirectory;
     private final Consumer<String> statusCallback;
     private final ConnectionManager connectionManager;
     private int currentProgress = 0;
 
-    public SpExporterService(ConnectionManager connectionManager, List<StoredProcedure> procedures, File targetDirectory, Consumer<String> statusCallback) {
+    public SpExporterService(ConnectionManager connectionManager, List<? extends DbObject> objects, File targetDirectory, Consumer<String> statusCallback) {
         this.connectionManager = connectionManager;
-        this.procedures = procedures;
+        this.objects = objects;
         this.targetDirectory = targetDirectory;
         this.statusCallback = statusCallback;
     }
@@ -31,30 +31,30 @@ public class SpExporterService extends SwingWorker<Void, String> {
             throw new IOException("Could not create target directory.");
         }
 
-        int total = procedures.size();
+        int total = objects.size();
         for (int i = 0; i < total; i++) {
             if (isCancelled()) {
                 break;
             }
 
-            StoredProcedure sp = procedures.get(i);
+            DbObject obj = objects.get(i);
             
             // Lazy load definition if needed
-            if (sp.getDefinition() == null) {
-                connectionManager.fillProcedureDefinition(sp);
+            if (obj.getDefinition() == null) {
+                connectionManager.fillDefinition(obj);
             }
             
-            String safeName = sp.getFullName().replaceAll("[\\\\/:*?\"<>|]", "_");
+            String safeName = obj.getFullName().replaceAll("[\\\\/:*?\"<>|]", "_");
             File file = new File(targetDirectory, safeName + ".sql");
 
             try (BufferedWriter writer = new BufferedWriter(new FileWriter(file))) {
-                writer.write(sp.getDefinition() != null ? sp.getDefinition() : "-- No definition available");
+                writer.write(obj.getDefinition() != null ? obj.getDefinition() : "-- No definition available");
             }
 
             currentProgress = (int) (((i + 1) / (double) total) * 100);
             setProgress(currentProgress);
             
-            String status = String.format("Exportando: %d/%d - %s", (i + 1), total, sp.getFullName());
+            String status = String.format("Exportando: %d/%d - %s", (i + 1), total, obj.getFullName());
             publish(status);
         }
         return null;

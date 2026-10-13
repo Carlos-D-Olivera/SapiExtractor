@@ -88,6 +88,10 @@ public class ConnectionManager {
     public String getConnectedDbName() {
         return connectedDbName;
     }
+
+    public DatabaseType getCurrentType() {
+        return currentType;
+    }
     
     public List<StoredProcedure> extractProcedureNames() throws SQLException {
         if (!isConnected()) {
@@ -95,17 +99,32 @@ public class ConnectionManager {
         }
         return currentExtractor.extractNames(currentConnection);
     }
+
+    public List<DbObject> extractObjects(DbObjectType type) throws SQLException {
+        if (!isConnected()) {
+            throw new SQLException("No active connection");
+        }
+        return currentExtractor.extractObjects(currentConnection, type);
+    }
     
     public void fillProcedureDefinition(StoredProcedure sp) throws SQLException {
         fillProcedureDefinition(sp, true);
     }
 
     public void fillProcedureDefinition(StoredProcedure sp, boolean forceRefresh) throws SQLException {
+        fillDefinition((DbObject) sp, forceRefresh);
+    }
+
+    public void fillDefinition(DbObject obj) throws SQLException {
+        fillDefinition(obj, true);
+    }
+
+    public void fillDefinition(DbObject obj, boolean forceRefresh) throws SQLException {
         if (!isConnected()) {
             throw new SQLException("No active connection");
         }
-        if (forceRefresh || sp.getDefinition() == null) {
-            currentExtractor.fillDefinition(currentConnection, sp);
+        if (forceRefresh || obj.getDefinition() == null) {
+            currentExtractor.fillDefinition(currentConnection, obj);
         }
     }
 }
