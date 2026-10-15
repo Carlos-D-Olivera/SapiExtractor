@@ -13,6 +13,13 @@ import (
 
 const maxRecent = 15
 
+// typeLabels maps engine constants to human-readable names.
+var typeLabels = map[db.DatabaseType]string{
+	db.SQLServer:  "SQL Server",
+	db.MySQL:      "MySQL / MariaDB",
+	db.PostgreSQL: "PostgreSQL",
+}
+
 // SavedConnection mirrors the Java SavedConnection model.
 type SavedConnection struct {
 	DbType           db.DatabaseType `json:"dbType"`
@@ -61,7 +68,11 @@ func (c *SavedConnection) DisplayName() string {
 	if c.Port != "" {
 		port = ":" + c.Port
 	}
-	return dbName + " [" + string(c.DbType) + " - " + server + port + "]"
+	label := typeLabels[c.DbType]
+	if label == "" {
+		label = string(c.DbType)
+	}
+	return dbName + " [" + label + " - " + server + port + "]"
 }
 
 // configPath returns the path to the connections JSON file.

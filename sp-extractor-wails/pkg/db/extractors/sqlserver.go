@@ -68,7 +68,7 @@ func (e *SqlServerExtractor) extractTriggers(conn *sql.DB) ([]db.DbObject, error
 	for rows.Next() {
 		var schema, name, parent string
 		if err := rows.Scan(&schema, &name, &parent); err != nil {
-			continue
+			return nil, fmt.Errorf("scan trigger row: %w", err)
 		}
 		list = append(list, db.DbObject{Type: db.Trigger, Schema: schema, ParentName: parent, Name: name})
 	}
@@ -89,7 +89,7 @@ func (e *SqlServerExtractor) extractColumns(conn *sql.DB) ([]db.DbObject, error)
 	for rows.Next() {
 		var schema, table, col string
 		if err := rows.Scan(&schema, &table, &col); err != nil {
-			continue
+			return nil, fmt.Errorf("scan column row: %w", err)
 		}
 		list = append(list, db.DbObject{Type: db.Column, Schema: schema, ParentName: table, Name: col})
 	}
@@ -106,7 +106,7 @@ func (e *SqlServerExtractor) queryObjects(conn *sql.DB, query string, objType db
 	for rows.Next() {
 		var schema, name string
 		if err := rows.Scan(&schema, &name); err != nil {
-			continue
+			return nil, fmt.Errorf("scan object row: %w", err)
 		}
 		list = append(list, db.DbObject{Type: objType, Schema: schema, Name: name})
 	}
@@ -223,7 +223,7 @@ func (e *SqlServerExtractor) fillTable(conn *sql.DB, obj *db.DbObject) error {
 		var maxLen, prec, scale int
 		var nullable, identity bool
 		if err := rows.Scan(&colName, &typeName, &maxLen, &prec, &scale, &nullable, &identity); err != nil {
-			continue
+			return fmt.Errorf("scan table column: %w", err)
 		}
 		fmtType := formatSQLType(typeName, maxLen, prec, scale)
 		idStr := ""
@@ -247,7 +247,7 @@ func (e *SqlServerExtractor) fillTable(conn *sql.DB, obj *db.DbObject) error {
 	for pkRows.Next() {
 		var pk, col string
 		if err := pkRows.Scan(&pk, &col); err != nil {
-			continue
+			return fmt.Errorf("scan primary key column: %w", err)
 		}
 		if pkName == "" {
 			pkName = pk

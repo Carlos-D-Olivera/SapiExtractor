@@ -1,13 +1,16 @@
 import { useEffect, useRef } from 'react'
-import { CheckCircle, XCircle, Loader2, FolderOpen } from 'lucide-react'
+import { CheckCircle, XCircle, Loader2, FolderOpen, Ban } from 'lucide-react'
 import clsx from 'clsx'
 
 export default function ExportBar({ progress, onCancel, onOpenFolder }) {
   const barRef = useRef(null)
 
-  const { current = 0, total = 0, name = '', percent = 0, done = false, error = null } = progress || {}
+  const {
+    current = 0, total = 0, name = '', percent = 0,
+    done = false, error = null, cancelled = false,
+  } = progress || {}
 
-  const isActive = !!progress && !done && !error
+  const isActive = !!progress && !done && !error && !cancelled
 
   return (
     <div className={clsx(
@@ -18,13 +21,15 @@ export default function ExportBar({ progress, onCancel, onOpenFolder }) {
         <div className="flex items-center gap-2">
           {error ? (
             <XCircle className="w-4 h-4 text-red-400" />
+          ) : cancelled ? (
+            <Ban className="w-4 h-4 text-amber-400" />
           ) : done ? (
             <CheckCircle className="w-4 h-4 text-emerald-400" />
           ) : isActive ? (
             <Loader2 className="w-4 h-4 text-brand-light animate-spin" />
           ) : null}
           <span className="text-sm font-medium text-white">
-            {error ? 'Export failed' : done ? 'Export complete' : isActive ? `Exporting… ${current}/${total}` : 'Ready to export'}
+            {error ? 'Export failed' : cancelled ? 'Export cancelled' : done ? 'Export complete' : isActive ? `Exporting… ${current}/${total}` : 'Ready to export'}
           </span>
         </div>
         <div className="flex items-center gap-2">
@@ -37,14 +42,14 @@ export default function ExportBar({ progress, onCancel, onOpenFolder }) {
           {isActive && onCancel && (
             <button onClick={onCancel} className="btn-danger text-xs py-1 px-2">Cancel</button>
           )}
-          {(done || error) && (
-            <span className="text-xs text-slate-500">{total} file{total !== 1 ? 's' : ''}</span>
+          {(done || cancelled) && (
+            <span className="text-xs text-slate-500">{current} / {total} file{total !== 1 ? 's' : ''}</span>
           )}
         </div>
       </div>
 
       {/* Progress bar */}
-      {(isActive || done) && (
+      {(isActive || done || cancelled) && (
         <div>
           <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(36,51,80,0.5)' }}>
             <div
@@ -54,8 +59,10 @@ export default function ExportBar({ progress, onCancel, onOpenFolder }) {
                 width: `${percent}%`,
                 background: done
                   ? 'linear-gradient(90deg, #059669, #34d399)'
+                  : cancelled
+                  ? 'linear-gradient(90deg, #92400E, #f59e0b)'
                   : 'linear-gradient(90deg, #004A77, #0096C7)',
-                boxShadow: done ? '0 0 8px rgba(52,211,153,0.4)' : '0 0 8px rgba(0,150,199,0.4)',
+                boxShadow: done ? '0 0 8px rgba(52,211,153,0.4)' : cancelled ? '0 0 8px rgba(245,158,11,0.4)' : '0 0 8px rgba(0,150,199,0.4)',
               }}
             />
           </div>

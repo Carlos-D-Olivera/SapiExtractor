@@ -28,7 +28,7 @@ func (e *MySQLExtractor) ExtractObjects(conn *sql.DB, objType db.DbObjectType) (
 	for rows.Next() {
 		var schema, name string
 		if err := rows.Scan(&schema, &name); err != nil {
-			continue
+			return nil, fmt.Errorf("scan procedure row: %w", err)
 		}
 		list = append(list, db.DbObject{Type: db.StoredProcedure, Schema: schema, Name: name})
 	}
@@ -36,6 +36,9 @@ func (e *MySQLExtractor) ExtractObjects(conn *sql.DB, objType db.DbObjectType) (
 }
 
 func (e *MySQLExtractor) FillDefinition(conn *sql.DB, obj *db.DbObject) error {
+	if obj.Type != db.StoredProcedure {
+		return nil
+	}
 	query := `SELECT ROUTINE_DEFINITION
 	          FROM information_schema.ROUTINES
 	          WHERE ROUTINE_TYPE = 'PROCEDURE' AND ROUTINE_SCHEMA = ? AND ROUTINE_NAME = ?`

@@ -40,6 +40,26 @@ type DbObject struct {
 	Definition string       `json:"definition,omitempty"`
 }
 
+// FilePrefix returns the short prefix used in exported filenames (parity with
+// the Java DbObjectType.getFilePrefix).
+func (t DbObjectType) FilePrefix() string {
+	switch t {
+	case StoredProcedure:
+		return "sp"
+	case Table:
+		return "table"
+	case Column:
+		return "col"
+	case Function:
+		return "func"
+	case Trigger:
+		return "trg"
+	case View:
+		return "view"
+	}
+	return "obj"
+}
+
 // FullName returns a display-friendly qualified name.
 func (o DbObject) FullName() string {
 	if o.Type == Column {
