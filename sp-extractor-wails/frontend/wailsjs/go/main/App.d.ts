@@ -6,11 +6,15 @@ import {main} from '../models';
 
 export function CancelExport():Promise<void>;
 
+export function CancelQuery():Promise<void>;
+
 export function Connect(arg1:db.ConnInfo):Promise<void>;
 
 export function DeleteConnection(arg1:config.SavedConnection):Promise<void>;
 
 export function Disconnect():Promise<void>;
+
+export function ExecuteQuery(arg1:string):Promise<main.QueryResponse>;
 
 export function ExportObjects(arg1:main.ExportRequest):Promise<void>;
 

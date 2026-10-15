@@ -3,6 +3,7 @@ package main
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"sp-extractor-wails/pkg/db"
 )
@@ -107,5 +108,28 @@ func TestFilePrefix(t *testing.T) {
 		if got := objType.FilePrefix(); got != expected {
 			t.Errorf("FilePrefix(%s) = %q, expected %q", objType, got, expected)
 		}
+	}
+}
+
+func TestValueToString(t *testing.T) {
+	if got := valueToString(nil); got != nil {
+		t.Errorf("valueToString(nil) = %v, expected nil", got)
+	}
+
+	if got := valueToString([]byte("hello")); got == nil || *got != "hello" {
+		t.Errorf("valueToString([]byte) = %v, expected \"hello\"", got)
+	}
+
+	if got := valueToString("plain"); got == nil || *got != "plain" {
+		t.Errorf("valueToString(string) = %v, expected \"plain\"", got)
+	}
+
+	if got := valueToString(int64(42)); got == nil || *got != "42" {
+		t.Errorf("valueToString(int64) = %v, expected \"42\"", got)
+	}
+
+	ts := time.Date(2024, 5, 1, 13, 30, 15, 0, time.UTC)
+	if got := valueToString(ts); got == nil || !strings.HasPrefix(*got, "2024-05-01 13:30:15") {
+		t.Errorf("valueToString(time.Time) = %v, expected formatted timestamp", got)
 	}
 }

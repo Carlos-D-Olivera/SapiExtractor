@@ -110,6 +110,56 @@ export namespace main {
 		    return a;
 		}
 	}
+	export class ResultSet {
+	    columns: string[];
+	    rows: string[][];
+	
+	    static createFrom(source: any = {}) {
+	        return new ResultSet(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.columns = source["columns"];
+	        this.rows = source["rows"];
+	    }
+	}
+	export class QueryResponse {
+	    sets: ResultSet[];
+	    message: string;
+	    durationMs: number;
+	    rowCount: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new QueryResponse(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.sets = this.convertValues(source["sets"], ResultSet);
+	        this.message = source["message"];
+	        this.durationMs = source["durationMs"];
+	        this.rowCount = source["rowCount"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 
 }
 

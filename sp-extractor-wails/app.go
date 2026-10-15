@@ -25,6 +25,8 @@ type App struct {
 	extractor      extractors.Extractor
 	exportCancelMu sync.Mutex
 	exportCancel   context.CancelFunc
+	queryCancelMu  sync.Mutex
+	queryCancel    context.CancelFunc
 }
 
 // NewApp creates a new App instance.
@@ -264,6 +266,123 @@ func (a *App) PickDirectory() (string, error) {
 		Title: "Select output folder",
 	})
 	return path, err
+}
+
+// ---- Query Execution ----
+
+// ResultSet is a single tabular result produced by a SQL statement.
+type ResultSet struct {
+	Columns []string    `json:"columns"`
+	Rows    [][]*string `json:"rows"`
+}
+
+// QueryResponse is the outcome of executing one or more SQL statements.
+type QueryResponse struct {
+	Sets       []ResultSet `json:"sets"`
+	Message    string      `json:"message"`
+	DurationMs int64       `json:"durationMs"`
+	RowCount   int         `json:"rowCount"`
+}
+
+// ExecuteQuery runs an arbitrary SQL statement/script against the current
+// connection and returns every result set it produces. NULL cells are
+// represented as null pointers.
+func (a *App) ExecuteQuery(sqlText string) (QueryResponse, error) {
+	if a.conn == nil {
+		return QueryResponse{}, fmt.Errorf("not connected")
+	}
+	if strings.TrimSpace(sqlText) == "" {
+		return QueryResponse{}, fmt.Errorf("empty query")
+	}
+
+	ctx, cancel := context.WithCancel(a.ctx)
+	a.queryCancelMu.Lock()
+	a.queryCancel = cancel
+	a.queryCancelMu.Unlock()
+	defer func() {
+		cancel()
+		a.queryCancelMu.Lock()
+		a.queryCancel = nil
+		a.queryCancelMu.Unlock()
+	}()
+
+	start := time.Now()
+	rows, err := a.conn.QueryContext(ctx, sqlText)
+	resp := QueryResponse{Sets: []ResultSet{}}
+	if err != nil {
+		return resp, err
+	}
+	defer rows.Close()
+
+	for {
+		cols, err := rows.Columns()
+		if err != nil {
+			return resp, err
+		}
+		if len(cols) > 0 {
+			set := ResultSet{Columns: cols, Rows: [][]*string{}}
+			for rows.Next() {
+				vals := make([]any, len(cols))
+				ptrs := make([]any, len(cols))
+				for i := range vals {
+					ptrs[i] = &vals[i]
+				}
+				if err := rows.Scan(ptrs...); err != nil {
+					return resp, err
+				}
+				row := make([]*string, len(cols))
+				for i, v := range vals {
+					row[i] = valueToString(v)
+				}
+				set.Rows = append(set.Rows, row)
+			}
+			if err := rows.Err(); err != nil {
+				return resp, err
+			}
+			resp.Sets = append(resp.Sets, set)
+			resp.RowCount += len(set.Rows)
+		}
+		if !rows.NextResultSet() {
+			break
+		}
+	}
+
+	resp.DurationMs = time.Since(start).Milliseconds()
+	if len(resp.Sets) == 0 {
+		resp.Message = "Comando ejecutado correctamente."
+	} else {
+		resp.Message = fmt.Sprintf("%d conjunto(s) de resultados, %d fila(s).", len(resp.Sets), resp.RowCount)
+	}
+	return resp, nil
+}
+
+// CancelQuery aborts an in-progress query execution.
+func (a *App) CancelQuery() {
+	a.queryCancelMu.Lock()
+	defer a.queryCancelMu.Unlock()
+	if a.queryCancel != nil {
+		a.queryCancel()
+		a.queryCancel = nil
+	}
+}
+
+// valueToString converts a scanned database value into an optional string.
+func valueToString(v any) *string {
+	if v == nil {
+		return nil
+	}
+	var s string
+	switch t := v.(type) {
+	case []byte:
+		s = string(t)
+	case string:
+		s = t
+	case time.Time:
+		s = t.Format("2006-01-02 15:04:05.999")
+	default:
+		s = fmt.Sprint(t)
+	}
+	return &s
 }
 
 // ---- Saved Connections ----

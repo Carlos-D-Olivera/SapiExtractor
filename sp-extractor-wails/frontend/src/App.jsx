@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   Database, Plug, PlugZap, RefreshCw, Download, ChevronDown,
   Server, Table2, Columns, FunctionSquare, Zap, Eye, Loader2,
-  AlertCircle, FolderOpen
+  AlertCircle, FolderOpen, Terminal, Layers
 } from 'lucide-react'
 import clsx from 'clsx'
 
@@ -10,6 +10,7 @@ import ConnectionDialog from './components/ConnectionDialog'
 import ObjectTable from './components/ObjectTable'
 import ExportBar from './components/ExportBar'
 import PreviewPanel from './components/PreviewPanel'
+import QueryWorkspace from './components/QueryWorkspace'
 
 // ---------- Constants ----------
 const OBJECT_TYPES = [
@@ -40,6 +41,7 @@ async function go() {
 export default function App() {
   const [showConnDialog, setShowConnDialog] = useState(false)
   const [connInfo, setConnInfo] = useState(null)        // current connection
+  const [view, setView] = useState('objects')           // 'objects' | 'query'
   const [savedConns, setSavedConns] = useState([])
   const [objType, setObjType] = useState('STORED_PROCEDURE')
   const [objects, setObjects] = useState([])
@@ -97,6 +99,7 @@ export default function App() {
   // ---- After connection ----
   const handleConnected = async (info) => {
     setConnInfo(info)
+    setView('objects')
     setShowConnDialog(false)
     cacheRef.current.clear()
     setObjects([])
@@ -132,6 +135,7 @@ export default function App() {
     } catch { /* ignore */ }
     cacheRef.current.clear()
     setConnInfo(null)
+    setView('objects')
     setObjects([])
     setSelected(new Set())
     setExportProgress(null)
@@ -286,6 +290,32 @@ export default function App() {
 
         <div className="flex-1" />
 
+        {/* View switch */}
+        {connInfo && (
+          <div className="flex items-center gap-1 p-0.5 rounded-lg" style={{ background: 'rgba(255,255,255,0.05)' }}>
+            <button
+              onClick={() => setView('objects')}
+              className={clsx(
+                'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all',
+                view === 'objects' ? 'bg-brand-dark/60 text-white' : 'text-slate-400 hover:text-slate-200'
+              )}
+            >
+              <Layers className="w-3.5 h-3.5" />
+              Explorador
+            </button>
+            <button
+              onClick={() => setView('query')}
+              className={clsx(
+                'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all',
+                view === 'query' ? 'bg-brand-dark/60 text-white' : 'text-slate-400 hover:text-slate-200'
+              )}
+            >
+              <Terminal className="w-3.5 h-3.5" />
+              Consultas
+            </button>
+          </div>
+        )}
+
         {/* Connection status */}
         {connInfo ? (
           <div className="flex items-center gap-3">
@@ -314,7 +344,12 @@ export default function App() {
 
       {/* ── Main Content ── */}
       <div className="flex-1 flex overflow-hidden">
-
+        {connInfo && view === 'query' ? (
+          <QueryWorkspace
+            connLabel={`${connInfo.dbName} · ${DB_LABELS[connInfo.dbType] || connInfo.dbType}`}
+          />
+        ) : (
+          <>
         {/* ── Sidebar: Object Type Picker ── */}
         <aside className="w-52 flex-shrink-0 border-r border-surface-600 flex flex-col py-3 gap-1 px-2"
                style={{ background: 'rgba(11,16,26,0.8)' }}>
@@ -451,6 +486,8 @@ export default function App() {
             </>
           )}
         </main>
+          </>
+        )}
       </div>
 
       {/* Connection dialog */}

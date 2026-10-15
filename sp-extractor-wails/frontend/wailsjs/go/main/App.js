@@ -6,6 +6,10 @@ export function CancelExport() {
   return window['go']['main']['App']['CancelExport']();
 }
 
+export function CancelQuery() {
+  return window['go']['main']['App']['CancelQuery']();
+}
+
 export function Connect(arg1) {
   return window['go']['main']['App']['Connect'](arg1);
 }
@@ -16,6 +20,10 @@ export function DeleteConnection(arg1) {
 
 export function Disconnect() {
   return window['go']['main']['App']['Disconnect']();
+}
+
+export function ExecuteQuery(arg1) {
+  return window['go']['main']['App']['ExecuteQuery'](arg1);
 }
 
 export function ExportObjects(arg1) {
