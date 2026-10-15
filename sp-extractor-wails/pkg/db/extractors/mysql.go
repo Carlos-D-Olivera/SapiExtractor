@@ -3,6 +3,7 @@ package extractors
 import (
 	"database/sql"
 	"fmt"
+	"strings"
 
 	"sp-extractor-wails/pkg/db"
 )
@@ -33,6 +34,79 @@ func (e *MySQLExtractor) ExtractObjects(conn *sql.DB, objType db.DbObjectType) (
 		list = append(list, db.DbObject{Type: db.StoredProcedure, Schema: schema, Name: name})
 	}
 	return list, rows.Err()
+}
+
+// ---- Schema model support ----
+
+func (e *MySQLExtractor) SearchTables(conn *sql.DB, term string, limit int) ([]db.DbObject, error) {
+	query := `SELECT TABLE_SCHEMA, TABLE_NAME
+	          FROM information_schema.TABLES
+	          WHERE TABLE_SCHEMA = DATABASE() AND TABLE_TYPE = 'BASE TABLE'
+	            AND TABLE_NAME LIKE ? ESCAPE '\'
+	          ORDER BY TABLE_NAME LIMIT ?`
+	rows, err := conn.Query(query, "%"+escapeLike(term)+"%", limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var list []db.DbObject
+	for rows.Next() {
+		var schema, name string
+		if err := rows.Scan(&schema, &name); err != nil {
+			return nil, fmt.Errorf("scan table search row: %w", err)
+		}
+		list = append(list, db.DbObject{Type: db.Table, Schema: schema, Name: name})
+	}
+	return list, rows.Err()
+}
+
+func (e *MySQLExtractor) ListForeignKeys(conn *sql.DB) ([]db.ForeignKey, error) {
+	query := `SELECT CONSTRAINT_NAME, TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME,
+	                 REFERENCED_TABLE_SCHEMA, REFERENCED_TABLE_NAME, REFERENCED_COLUMN_NAME
+	          FROM information_schema.KEY_COLUMN_USAGE
+	          WHERE REFERENCED_TABLE_NAME IS NOT NULL AND TABLE_SCHEMA = DATABASE()
+	          ORDER BY CONSTRAINT_NAME, ORDINAL_POSITION`
+	rows, err := conn.Query(query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var list []db.ForeignKey
+	for rows.Next() {
+		var fk db.ForeignKey
+		if err := rows.Scan(&fk.Name, &fk.FromSchema, &fk.FromTable, &fk.FromColumn,
+			&fk.ToSchema, &fk.ToTable, &fk.ToColumn); err != nil {
+			return nil, fmt.Errorf("scan foreign key row: %w", err)
+		}
+		list = append(list, fk)
+	}
+	return list, rows.Err()
+}
+
+func (e *MySQLExtractor) TableColumns(conn *sql.DB, schema, table string) ([]db.TableColumn, error) {
+	query := `SELECT COLUMN_NAME, COLUMN_TYPE, IS_NULLABLE, COLUMN_KEY
+	          FROM information_schema.COLUMNS
+	          WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?
+	          ORDER BY ORDINAL_POSITION`
+	rows, err := conn.Query(query, schema, table)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var cols []db.TableColumn
+	for rows.Next() {
+		var name, dataType, nullable, key string
+		if err := rows.Scan(&name, &dataType, &nullable, &key); err != nil {
+			return nil, fmt.Errorf("scan table column: %w", err)
+		}
+		cols = append(cols, db.TableColumn{
+			Name:       name,
+			DataType:   dataType,
+			Nullable:   strings.EqualFold(nullable, "YES"),
+			PrimaryKey: key == "PRI",
+		})
+	}
+	return cols, rows.Err()
 }
 
 func (e *MySQLExtractor) FillDefinition(conn *sql.DB, obj *db.DbObject) error {

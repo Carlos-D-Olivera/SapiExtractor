@@ -1,8 +1,8 @@
 import { useState, useMemo } from 'react'
-import { Search, CheckSquare, Square, Minus, ChevronUp, ChevronDown, Eye } from 'lucide-react'
+import { Search, CheckSquare, Square, Minus, ChevronUp, ChevronDown, Eye, Network } from 'lucide-react'
 import clsx from 'clsx'
 
-export default function ObjectTable({ objects, selectedKeys, onSelectionChange, onPreview, previewKey }) {
+export default function ObjectTable({ objects, selectedKeys, onSelectionChange, onPreview, previewKey, onRelations }) {
   const [search, setSearch] = useState('')
   const [sortDir, setSortDir] = useState('asc')
 
@@ -121,7 +121,16 @@ export default function ObjectTable({ objects, selectedKeys, onSelectionChange, 
                     {obj.name}
                   </td>
                   <td className="px-3 py-2 text-slate-400 text-xs">{obj.schema || '—'}</td>
-                  <td className="w-10 px-3 py-2">
+                  <td className="w-10 px-3 py-2 whitespace-nowrap">
+                    {onRelations && (
+                      <button
+                        className="p-1 mr-1 rounded text-slate-500 hover:text-brand-light hover:bg-brand-dark/30 transition-colors"
+                        onClick={e => { e.stopPropagation(); onRelations(obj) }}
+                        title="Ver relaciones (llaves foráneas)"
+                      >
+                        <Network className="w-3.5 h-3.5" />
+                      </button>
+                    )}
                     <button
                       className="p-1 rounded text-slate-500 hover:text-brand-light hover:bg-brand-dark/30 transition-colors"
                       onClick={e => { e.stopPropagation(); onPreview?.(obj) }}

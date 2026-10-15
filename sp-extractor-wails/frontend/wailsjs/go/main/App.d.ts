@@ -22,6 +22,8 @@ export function GetDefinition(arg1:db.DbObject):Promise<db.DbObject>;
 
 export function GetObjectText(arg1:db.DbObject):Promise<string>;
 
+export function GetSchemaModel(arg1:string,arg2:string,arg3:number):Promise<db.SchemaModel>;
+
 export function IsConnected():Promise<boolean>;
 
 export function ListDatabases(arg1:db.ConnInfo):Promise<Array<string>>;
@@ -37,3 +39,5 @@ export function PickDirectory():Promise<string>;
 export function SaveConnection(arg1:config.SavedConnection):Promise<void>;
 
 export function SaveObject(arg1:db.DbObject):Promise<string>;
+
+export function SearchTables(arg1:string,arg2:number):Promise<Array<db.DbObject>>;

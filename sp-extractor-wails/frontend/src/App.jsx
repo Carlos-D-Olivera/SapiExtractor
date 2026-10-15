@@ -11,6 +11,7 @@ import ObjectTable from './components/ObjectTable'
 import ExportBar from './components/ExportBar'
 import PreviewPanel from './components/PreviewPanel'
 import QueryWorkspace from './components/QueryWorkspace'
+import RelationsPanel from './components/RelationsPanel'
 
 // ---------- Constants ----------
 const OBJECT_TYPES = [
@@ -56,6 +57,7 @@ export default function App() {
   const [previewDef, setPreviewDef] = useState('')
   const [previewLoading, setPreviewLoading] = useState(false)
   const [previewError, setPreviewError] = useState('')
+  const [relationsObj, setRelationsObj] = useState(null) // table whose FK relations are shown
 
   // ---- Load saved connections ----
   const loadSavedConns = useCallback(async () => {
@@ -109,6 +111,7 @@ export default function App() {
     setPreviewObj(null)
     setPreviewDef('')
     setPreviewError('')
+    setRelationsObj(null)
     // Save to history
     try {
       const api = await go()
@@ -142,6 +145,7 @@ export default function App() {
     setPreviewObj(null)
     setPreviewDef('')
     setPreviewError('')
+    setRelationsObj(null)
   }
 
   const handleDeleteSaved = async (conn) => {
@@ -178,6 +182,7 @@ export default function App() {
 
   const handleTypeChange = (type) => {
     setObjType(type)
+    setRelationsObj(null)
     setPreviewObj(null)
     setPreviewDef('')
     setPreviewError('')
@@ -208,9 +213,21 @@ export default function App() {
     setPreviewError('')
   }
 
+  // Open a table (from the relations diagram) in the Tables section, showing its definition.
+  const openTableFromRelations = useCallback(async (ref) => {
+    setRelationsObj(null)
+    setObjType('TABLE')
+    if (connInfo) await loadObjects('TABLE', connInfo)
+    handlePreview({ type: 'TABLE', schema: ref.schema, name: ref.name })
+  }, [connInfo, loadObjects, handlePreview])
+
   // F5 reloads the current preview, Escape returns to the list (Java shortcuts)
   useEffect(() => {
     const onKey = (e) => {
+      if (e.key === 'Escape' && relationsObj) {
+        setRelationsObj(null)
+        return
+      }
       if (!previewObj) return
       if (e.key === 'F5') {
         e.preventDefault()
@@ -452,6 +469,12 @@ export default function App() {
                     <Loader2 className="w-5 h-5 animate-spin text-brand-light" />
                     <span className="text-sm">Loading…</span>
                   </div>
+                ) : relationsObj ? (
+                  <RelationsPanel
+                    obj={relationsObj}
+                    onBack={() => setRelationsObj(null)}
+                    onOpenTable={openTableFromRelations}
+                  />
                 ) : previewObj ? (
                   <PreviewPanel
                     obj={previewObj}
@@ -468,6 +491,7 @@ export default function App() {
                     selectedKeys={selected}
                     onSelectionChange={setSelected}
                     onPreview={handlePreview}
+                    onRelations={objType === 'TABLE' ? setRelationsObj : undefined}
                     previewKey={previewObj ? objKey(previewObj) : ''}
                   />
                 )}

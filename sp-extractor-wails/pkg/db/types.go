@@ -40,6 +40,40 @@ type DbObject struct {
 	Definition string       `json:"definition,omitempty"`
 }
 
+// TableColumn describes a single column of a table for the schema model view.
+type TableColumn struct {
+	Name       string `json:"name"`
+	DataType   string `json:"dataType"`
+	Nullable   bool   `json:"nullable"`
+	PrimaryKey bool   `json:"primaryKey"`
+}
+
+// SchemaTable is a table node in the schema/relationship model.
+type SchemaTable struct {
+	Schema  string        `json:"schema"`
+	Name    string        `json:"name"`
+	Columns []TableColumn `json:"columns"`
+}
+
+// ForeignKey describes a single-column foreign-key relationship.
+type ForeignKey struct {
+	Name       string `json:"name"`
+	FromSchema string `json:"fromSchema"`
+	FromTable  string `json:"fromTable"`
+	FromColumn string `json:"fromColumn"`
+	ToSchema   string `json:"toSchema"`
+	ToTable    string `json:"toTable"`
+	ToColumn   string `json:"toColumn"`
+}
+
+// SchemaModel is a graph of tables connected by foreign keys, seeded from a
+// specific table and expanded to a bounded depth.
+type SchemaModel struct {
+	Tables []SchemaTable `json:"tables"`
+	Edges  []ForeignKey  `json:"edges"`
+}
+
+
 // FilePrefix returns the short prefix used in exported filenames (parity with
 // the Java DbObjectType.getFilePrefix).
 func (t DbObjectType) FilePrefix() string {

@@ -38,6 +38,10 @@ export function GetObjectText(arg1) {
   return window['go']['main']['App']['GetObjectText'](arg1);
 }
 
+export function GetSchemaModel(arg1, arg2, arg3) {
+  return window['go']['main']['App']['GetSchemaModel'](arg1, arg2, arg3);
+}
+
 export function IsConnected() {
   return window['go']['main']['App']['IsConnected']();
 }
@@ -68,4 +72,8 @@ export function SaveConnection(arg1) {
 
 export function SaveObject(arg1) {
   return window['go']['main']['App']['SaveObject'](arg1);
+}
+
+export function SearchTables(arg1, arg2) {
+  return window['go']['main']['App']['SearchTables'](arg1, arg2);
 }

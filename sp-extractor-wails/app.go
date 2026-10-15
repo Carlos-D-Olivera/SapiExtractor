@@ -385,6 +385,35 @@ func valueToString(v any) *string {
 	return &s
 }
 
+// ---- Schema / relationship model ----
+
+// SearchTables returns tables (all schemas) whose name contains term.
+func (a *App) SearchTables(term string, limit int) ([]db.DbObject, error) {
+	if a.conn == nil {
+		return nil, fmt.Errorf("not connected")
+	}
+	if limit <= 0 {
+		limit = 100
+	}
+	return a.extractor.SearchTables(a.conn, term, limit)
+}
+
+// GetSchemaModel builds the foreign-key graph around a seed table, expanding
+// `depth` hops in both directions (references and referenced-by).
+func (a *App) GetSchemaModel(schema, table string, depth int) (db.SchemaModel, error) {
+	if a.conn == nil {
+		return db.SchemaModel{}, fmt.Errorf("not connected")
+	}
+	fks, err := a.extractor.ListForeignKeys(a.conn)
+	if err != nil {
+		return db.SchemaModel{}, fmt.Errorf("error listing foreign keys: %w", err)
+	}
+	seed := extractors.TableRef{Schema: schema, Name: table}
+	return extractors.BuildSchemaModel(a.conn, fks, seed, depth, func(s, t string) ([]db.TableColumn, error) {
+		return a.extractor.TableColumns(a.conn, s, t)
+	})
+}
+
 // ---- Saved Connections ----
 
 // LoadConnections returns the saved connection history.

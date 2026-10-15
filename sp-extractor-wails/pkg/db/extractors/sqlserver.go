@@ -96,6 +96,94 @@ func (e *SqlServerExtractor) extractColumns(conn *sql.DB) ([]db.DbObject, error)
 	return list, rows.Err()
 }
 
+// ---- Schema model support ----
+
+func (e *SqlServerExtractor) SearchTables(conn *sql.DB, term string, limit int) ([]db.DbObject, error) {
+	query := `SELECT TOP (@p2) SCHEMA_NAME(schema_id) AS SchemaName, name AS TableName
+	          FROM sys.tables
+	          WHERE name LIKE @p1 ESCAPE '\'
+	          ORDER BY name`
+	rows, err := conn.Query(query, "%"+escapeLike(term)+"%", limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var list []db.DbObject
+	for rows.Next() {
+		var schema, name string
+		if err := rows.Scan(&schema, &name); err != nil {
+			return nil, fmt.Errorf("scan table search row: %w", err)
+		}
+		list = append(list, db.DbObject{Type: db.Table, Schema: schema, Name: name})
+	}
+	return list, rows.Err()
+}
+
+func (e *SqlServerExtractor) ListForeignKeys(conn *sql.DB) ([]db.ForeignKey, error) {
+	query := `SELECT fk.name,
+	                 SCHEMA_NAME(pt.schema_id), pt.name, pc.name,
+	                 SCHEMA_NAME(rt.schema_id), rt.name, rc.name
+	          FROM sys.foreign_key_columns fkc
+	          INNER JOIN sys.foreign_keys fk ON fk.object_id = fkc.constraint_object_id
+	          INNER JOIN sys.tables pt ON pt.object_id = fkc.parent_object_id
+	          INNER JOIN sys.columns pc ON pc.object_id = fkc.parent_object_id AND pc.column_id = fkc.parent_column_id
+	          INNER JOIN sys.tables rt ON rt.object_id = fkc.referenced_object_id
+	          INNER JOIN sys.columns rc ON rc.object_id = fkc.referenced_object_id AND rc.column_id = fkc.referenced_column_id
+	          ORDER BY fk.name`
+	rows, err := conn.Query(query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var list []db.ForeignKey
+	for rows.Next() {
+		var fk db.ForeignKey
+		if err := rows.Scan(&fk.Name, &fk.FromSchema, &fk.FromTable, &fk.FromColumn,
+			&fk.ToSchema, &fk.ToTable, &fk.ToColumn); err != nil {
+			return nil, fmt.Errorf("scan foreign key row: %w", err)
+		}
+		list = append(list, fk)
+	}
+	return list, rows.Err()
+}
+
+func (e *SqlServerExtractor) TableColumns(conn *sql.DB, schema, table string) ([]db.TableColumn, error) {
+	query := `SELECT c.name, tp.name AS TypeName, c.max_length, c.precision, c.scale, c.is_nullable,
+	                 CASE WHEN pk.column_id IS NOT NULL THEN 1 ELSE 0 END AS IsPk
+	          FROM sys.columns c
+	          INNER JOIN sys.types tp ON c.user_type_id = tp.user_type_id
+	          INNER JOIN sys.tables t ON c.object_id = t.object_id
+	          LEFT JOIN (
+	              SELECT ic.object_id, ic.column_id
+	              FROM sys.index_columns ic
+	              INNER JOIN sys.indexes i ON i.object_id = ic.object_id AND i.index_id = ic.index_id
+	              WHERE i.is_primary_key = 1
+	          ) pk ON pk.object_id = c.object_id AND pk.column_id = c.column_id
+	          WHERE SCHEMA_NAME(t.schema_id) = @p1 AND t.name = @p2
+	          ORDER BY c.column_id`
+	rows, err := conn.Query(query, schema, table)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var cols []db.TableColumn
+	for rows.Next() {
+		var name, typeName string
+		var maxLen, prec, scale int
+		var nullable, isPk bool
+		if err := rows.Scan(&name, &typeName, &maxLen, &prec, &scale, &nullable, &isPk); err != nil {
+			return nil, fmt.Errorf("scan table column: %w", err)
+		}
+		cols = append(cols, db.TableColumn{
+			Name:       name,
+			DataType:   formatSQLType(typeName, maxLen, prec, scale),
+			Nullable:   nullable,
+			PrimaryKey: isPk,
+		})
+	}
+	return cols, rows.Err()
+}
+
 func (e *SqlServerExtractor) queryObjects(conn *sql.DB, query string, objType db.DbObjectType) ([]db.DbObject, error) {
 	rows, err := conn.Query(query)
 	if err != nil {
