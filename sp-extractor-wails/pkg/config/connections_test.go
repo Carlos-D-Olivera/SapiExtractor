@@ -35,7 +35,7 @@ func TestSavedConnectionDisplayName(t *testing.T) {
 		DbName: "ProductionDB",
 	}
 
-	expected := "ProductionDB [SQL_SERVER - db.example.com:1433]"
+	expected := "ProductionDB [SQL Server - db.example.com:1433]"
 	if got := conn.DisplayName(); got != expected {
 		t.Errorf("DisplayName() = %q, expected %q", got, expected)
 	}

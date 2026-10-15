@@ -1,8 +1,8 @@
 import { useState, useMemo } from 'react'
-import { Search, CheckSquare, Square, Minus, ChevronUp, ChevronDown } from 'lucide-react'
+import { Search, CheckSquare, Square, Minus, ChevronUp, ChevronDown, Eye } from 'lucide-react'
 import clsx from 'clsx'
 
-export default function ObjectTable({ objects, selectedKeys, onSelectionChange }) {
+export default function ObjectTable({ objects, selectedKeys, onSelectionChange, onPreview, previewKey }) {
   const [search, setSearch] = useState('')
   const [sortDir, setSortDir] = useState('asc')
 
@@ -84,12 +84,13 @@ export default function ObjectTable({ objects, selectedKeys, onSelectionChange }
                 </span>
               </th>
               <th className="px-3 py-2.5 text-left text-xs font-medium text-slate-400">Schema</th>
+              <th className="w-10 px-3 py-2.5" />
             </tr>
           </thead>
           <tbody>
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={3} className="text-center py-12 text-slate-500 text-sm">
+                <td colSpan={4} className="text-center py-12 text-slate-500 text-sm">
                   {search ? 'No results match your search.' : 'No objects found.'}
                 </td>
               </tr>
@@ -102,7 +103,7 @@ export default function ObjectTable({ objects, selectedKeys, onSelectionChange }
                   onClick={() => toggle(key)}
                   className={clsx(
                     'cursor-pointer transition-colors border-t border-surface-700/50',
-                    checked ? 'bg-brand-dark/20' : i % 2 === 0 ? 'hover:bg-surface-700/40' : 'bg-surface-800/30 hover:bg-surface-700/40'
+                    (checked || key === previewKey) ? 'bg-brand-dark/20' : i % 2 === 0 ? 'hover:bg-surface-700/40' : 'bg-surface-800/30 hover:bg-surface-700/40'
                   )}
                 >
                   <td className="w-8 px-3 py-2">
@@ -112,8 +113,23 @@ export default function ObjectTable({ objects, selectedKeys, onSelectionChange }
                       <Square className="w-4 h-4 text-slate-600" />
                     )}
                   </td>
-                  <td className="px-3 py-2 font-medium text-white font-mono text-xs">{obj.name}</td>
+                  <td
+                    className="px-3 py-2 font-medium text-white font-mono text-xs hover:text-brand-light hover:underline underline-offset-2"
+                    onClick={e => { e.stopPropagation(); onPreview?.(obj) }}
+                    title="Ver definición"
+                  >
+                    {obj.name}
+                  </td>
                   <td className="px-3 py-2 text-slate-400 text-xs">{obj.schema || '—'}</td>
+                  <td className="w-10 px-3 py-2">
+                    <button
+                      className="p-1 rounded text-slate-500 hover:text-brand-light hover:bg-brand-dark/30 transition-colors"
+                      onClick={e => { e.stopPropagation(); onPreview?.(obj) }}
+                      title="Ver definición"
+                    >
+                      <Eye className="w-3.5 h-3.5" />
+                    </button>
+                  </td>
                 </tr>
               )
             })}

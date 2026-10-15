@@ -2,6 +2,7 @@ package extractors
 
 import (
 	"database/sql"
+	"fmt"
 
 	"sp-extractor-wails/pkg/db"
 )
@@ -29,7 +30,7 @@ func (e *PostgresExtractor) ExtractObjects(conn *sql.DB, objType db.DbObjectType
 	for rows.Next() {
 		var schema, name string
 		if err := rows.Scan(&schema, &name); err != nil {
-			continue
+			return nil, fmt.Errorf("scan procedure row: %w", err)
 		}
 		list = append(list, db.DbObject{Type: db.StoredProcedure, Schema: schema, Name: name})
 	}
@@ -37,6 +38,9 @@ func (e *PostgresExtractor) ExtractObjects(conn *sql.DB, objType db.DbObjectType
 }
 
 func (e *PostgresExtractor) FillDefinition(conn *sql.DB, obj *db.DbObject) error {
+	if obj.Type != db.StoredProcedure {
+		return nil
+	}
 	query := `SELECT pg_get_functiondef(p.oid) AS Definition
 	          FROM pg_proc p
 	          INNER JOIN pg_namespace n ON n.oid = p.pronamespace

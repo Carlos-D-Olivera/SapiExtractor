@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   Database, Plug, PlugZap, RefreshCw, Download, ChevronDown,
   Server, Table2, Columns, FunctionSquare, Zap, Eye, Loader2,
@@ -9,6 +9,7 @@ import clsx from 'clsx'
 import ConnectionDialog from './components/ConnectionDialog'
 import ObjectTable from './components/ObjectTable'
 import ExportBar from './components/ExportBar'
+import PreviewPanel from './components/PreviewPanel'
 
 // ---------- Constants ----------
 const OBJECT_TYPES = [
@@ -48,6 +49,11 @@ export default function App() {
   const [outDir, setOutDir] = useState('')
   const [exportProgress, setExportProgress] = useState(null)
   const [exporting, setExporting] = useState(false)
+  const cacheRef = useRef(new Map())         // objType -> DbObject[] (parity with Java cache)
+  const [previewObj, setPreviewObj] = useState(null)
+  const [previewDef, setPreviewDef] = useState('')
+  const [previewLoading, setPreviewLoading] = useState(false)
+  const [previewError, setPreviewError] = useState('')
 
   // ---- Load saved connections ----
   const loadSavedConns = useCallback(async () => {
@@ -62,7 +68,7 @@ export default function App() {
 
   // ---- Wails event listeners ----
   useEffect(() => {
-    let unlisten1, unlisten2, unlisten3
+    let unlisten1, unlisten2, unlisten3, unlisten4
     ;(async () => {
       const { EventsOn } = await import('../wailsjs/runtime/runtime')
       unlisten1 = EventsOn('export:progress', data => {
@@ -75,11 +81,16 @@ export default function App() {
       unlisten3 = EventsOn('export:error', data => {
         setExportProgress(prev => ({ ...prev, error: data.error }))
       })
+      unlisten4 = EventsOn('export:cancelled', data => {
+        setExportProgress(prev => ({ ...prev, cancelled: true, ...data }))
+        setExporting(false)
+      })
     })()
     return () => {
       unlisten1?.()
       unlisten2?.()
       unlisten3?.()
+      unlisten4?.()
     }
   }, [])
 
@@ -87,10 +98,14 @@ export default function App() {
   const handleConnected = async (info) => {
     setConnInfo(info)
     setShowConnDialog(false)
+    cacheRef.current.clear()
     setObjects([])
     setSelected(new Set())
     setObjError('')
     setExportProgress(null)
+    setPreviewObj(null)
+    setPreviewDef('')
+    setPreviewError('')
     // Save to history
     try {
       const api = await go()
@@ -115,10 +130,14 @@ export default function App() {
       const api = await go()
       await api.Disconnect()
     } catch { /* ignore */ }
+    cacheRef.current.clear()
     setConnInfo(null)
     setObjects([])
     setSelected(new Set())
     setExportProgress(null)
+    setPreviewObj(null)
+    setPreviewDef('')
+    setPreviewError('')
   }
 
   const handleDeleteSaved = async (conn) => {
@@ -129,8 +148,14 @@ export default function App() {
     } catch { /* ignore */ }
   }
 
-  // ---- Object listing ----
-  const loadObjects = useCallback(async (type, info) => {
+  // ---- Object listing (cached per type, like the Java app) ----
+  const loadObjects = useCallback(async (type, info, force = false) => {
+    if (!force && cacheRef.current.has(type)) {
+      setObjects(cacheRef.current.get(type))
+      setSelected(new Set())
+      setObjError('')
+      return
+    }
     setLoadingObjects(true)
     setObjError('')
     setObjects([])
@@ -138,6 +163,7 @@ export default function App() {
     try {
       const api = await go()
       const list = await api.ListObjects(type)
+      cacheRef.current.set(type, list || [])
       setObjects(list || [])
     } catch (e) {
       setObjError(e.toString())
@@ -148,8 +174,50 @@ export default function App() {
 
   const handleTypeChange = (type) => {
     setObjType(type)
+    setPreviewObj(null)
+    setPreviewDef('')
+    setPreviewError('')
     if (connInfo) loadObjects(type, connInfo)
   }
+
+  // ---- Preview (parity with the Java MainFrame preview panel) ----
+  const handlePreview = useCallback(async (obj) => {
+    if (!obj) return
+    setPreviewObj(obj)
+    setPreviewDef('')
+    setPreviewError('')
+    setPreviewLoading(true)
+    try {
+      const api = await go()
+      const result = await api.GetDefinition(obj)
+      setPreviewDef(result?.definition || '')
+    } catch (e) {
+      setPreviewError(e.toString())
+    } finally {
+      setPreviewLoading(false)
+    }
+  }, [])
+
+  const closePreview = () => {
+    setPreviewObj(null)
+    setPreviewDef('')
+    setPreviewError('')
+  }
+
+  // F5 reloads the current preview, Escape returns to the list (Java shortcuts)
+  useEffect(() => {
+    const onKey = (e) => {
+      if (!previewObj) return
+      if (e.key === 'F5') {
+        e.preventDefault()
+        handlePreview(previewObj)
+      } else if (e.key === 'Escape') {
+        closePreview()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  })
 
   // ---- Export ----
   const handlePickDir = async () => {
@@ -176,6 +244,13 @@ export default function App() {
       setExportProgress(prev => ({ ...prev, error: e.toString() }))
       setExporting(false)
     }
+  }
+
+  const handleCancelExport = async () => {
+    try {
+      const api = await go()
+      await api.CancelExport()
+    } catch { /* ignore */ }
   }
 
   const handleOpenFolder = () => {
@@ -299,7 +374,7 @@ export default function App() {
                 </div>
                 <div className="flex-1" />
                 <button
-                  onClick={() => loadObjects(objType, connInfo)}
+                  onClick={() => loadObjects(objType, connInfo, true)}
                   disabled={loadingObjects}
                   className="btn-secondary text-xs py-1.5 px-3"
                 >
@@ -335,18 +410,30 @@ export default function App() {
                 </div>
               )}
 
-              {/* Object table */}
+              {/* Object table / Preview */}
               <div className="flex-1 overflow-hidden">
                 {loadingObjects ? (
                   <div className="flex items-center justify-center h-full gap-3 text-slate-500">
                     <Loader2 className="w-5 h-5 animate-spin text-brand-light" />
                     <span className="text-sm">Loading…</span>
                   </div>
+                ) : previewObj ? (
+                  <PreviewPanel
+                    obj={previewObj}
+                    typeLabel={OBJECT_TYPES.find(t => t.value === objType)?.label || objType}
+                    definition={previewDef}
+                    loading={previewLoading}
+                    error={previewError}
+                    onRefresh={() => handlePreview(previewObj)}
+                    onBack={closePreview}
+                  />
                 ) : (
                   <ObjectTable
                     objects={objects}
                     selectedKeys={selected}
                     onSelectionChange={setSelected}
+                    onPreview={handlePreview}
+                    previewKey={previewObj ? objKey(previewObj) : ''}
                   />
                 )}
               </div>
@@ -356,7 +443,7 @@ export default function App() {
                 <div className="flex-shrink-0">
                   <ExportBar
                     progress={exportProgress}
-                    onCancel={() => { setExporting(false); setExportProgress(null) }}
+                    onCancel={handleCancelExport}
                     onOpenFolder={handleOpenFolder}
                   />
                 </div>
