@@ -12,15 +12,16 @@ import ExportBar from './components/ExportBar'
 import PreviewPanel from './components/PreviewPanel'
 import QueryWorkspace from './components/QueryWorkspace'
 import RelationsPanel from './components/RelationsPanel'
+import appIcon from './assets/SpExtractor.ico'
 
 // ---------- Constants ----------
 const OBJECT_TYPES = [
   { value: 'STORED_PROCEDURE', label: 'Stored Procedures', icon: Database },
-  { value: 'TABLE',            label: 'Tables',            icon: Table2 },
-  { value: 'COLUMN',           label: 'Columns',           icon: Columns },
-  { value: 'FUNCTION',         label: 'Functions',         icon: FunctionSquare },
-  { value: 'TRIGGER',          label: 'Triggers',          icon: Zap },
-  { value: 'VIEW',             label: 'Views',             icon: Eye },
+  { value: 'TABLE', label: 'Tables', icon: Table2 },
+  { value: 'COLUMN', label: 'Columns', icon: Columns },
+  { value: 'FUNCTION', label: 'Functions', icon: FunctionSquare },
+  { value: 'TRIGGER', label: 'Triggers', icon: Zap },
+  { value: 'VIEW', label: 'Views', icon: Eye },
 ]
 
 const DB_LABELS = {
@@ -53,6 +54,7 @@ export default function App() {
   const [exportProgress, setExportProgress] = useState(null)
   const [exporting, setExporting] = useState(false)
   const cacheRef = useRef(new Map())         // objType -> DbObject[] (parity with Java cache)
+  const defCacheRef = useRef(new Map())      // objKey -> definition string (lazy-loaded definitions)
   const [previewObj, setPreviewObj] = useState(null)
   const [previewDef, setPreviewDef] = useState('')
   const [previewLoading, setPreviewLoading] = useState(false)
@@ -73,23 +75,23 @@ export default function App() {
   // ---- Wails event listeners ----
   useEffect(() => {
     let unlisten1, unlisten2, unlisten3, unlisten4
-    ;(async () => {
-      const { EventsOn } = await import('../wailsjs/runtime/runtime')
-      unlisten1 = EventsOn('export:progress', data => {
-        setExportProgress({ ...data })
-      })
-      unlisten2 = EventsOn('export:done', data => {
-        setExportProgress(prev => ({ ...prev, done: true, ...data }))
-        setExporting(false)
-      })
-      unlisten3 = EventsOn('export:error', data => {
-        setExportProgress(prev => ({ ...prev, error: data.error }))
-      })
-      unlisten4 = EventsOn('export:cancelled', data => {
-        setExportProgress(prev => ({ ...prev, cancelled: true, ...data }))
-        setExporting(false)
-      })
-    })()
+      ; (async () => {
+        const { EventsOn } = await import('../wailsjs/runtime/runtime')
+        unlisten1 = EventsOn('export:progress', data => {
+          setExportProgress({ ...data })
+        })
+        unlisten2 = EventsOn('export:done', data => {
+          setExportProgress(prev => ({ ...prev, done: true, ...data }))
+          setExporting(false)
+        })
+        unlisten3 = EventsOn('export:error', data => {
+          setExportProgress(prev => ({ ...prev, error: data.error }))
+        })
+        unlisten4 = EventsOn('export:cancelled', data => {
+          setExportProgress(prev => ({ ...prev, cancelled: true, ...data }))
+          setExporting(false)
+        })
+      })()
     return () => {
       unlisten1?.()
       unlisten2?.()
@@ -104,6 +106,7 @@ export default function App() {
     setView('objects')
     setShowConnDialog(false)
     cacheRef.current.clear()
+    defCacheRef.current.clear()
     setObjects([])
     setSelected(new Set())
     setObjError('')
@@ -137,6 +140,7 @@ export default function App() {
       await api.Disconnect()
     } catch { /* ignore */ }
     cacheRef.current.clear()
+    defCacheRef.current.clear()
     setConnInfo(null)
     setView('objects')
     setObjects([])
@@ -195,16 +199,25 @@ export default function App() {
     setPreviewObj(obj)
     setPreviewDef('')
     setPreviewError('')
+    const key = objKey(obj)
+    // Use cached definition if available (avoids re-querying the DB).
+    if (defCacheRef.current.has(key)) {
+      setPreviewDef(defCacheRef.current.get(key))
+      return
+    }
     setPreviewLoading(true)
     try {
       const api = await go()
       const result = await api.GetDefinition(obj)
-      setPreviewDef(result?.definition || '')
+      const def = result?.definition || ''
+      defCacheRef.current.set(key, def)
+      setPreviewDef(def)
     } catch (e) {
       setPreviewError(e.toString())
     } finally {
       setPreviewLoading(false)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const closePreview = () => {
@@ -231,6 +244,8 @@ export default function App() {
       if (!previewObj) return
       if (e.key === 'F5') {
         e.preventDefault()
+        // Force-refresh: clear cached definition so it is re-fetched from DB.
+        defCacheRef.current.delete(objKey(previewObj))
         handlePreview(previewObj)
       } else if (e.key === 'Escape') {
         closePreview()
@@ -292,12 +307,11 @@ export default function App() {
     <div className="h-full flex flex-col bg-surface-900">
       {/* ── Top Bar ── */}
       <header className="flex items-center gap-3 px-5 py-3 border-b border-surface-600 flex-shrink-0"
-              style={{ background: 'rgba(13,21,32,0.95)', backdropFilter: 'blur(8px)' }}>
+        style={{ background: 'rgba(13,21,32,0.95)', backdropFilter: 'blur(8px)' }}>
         {/* Logo / Title */}
         <div className="flex items-center gap-2.5">
-          <div className="p-1.5 rounded-lg"
-               style={{ background: 'linear-gradient(135deg, #004A77, #0077B6)' }}>
-            <Database className="w-4 h-4 text-white" />
+          <div className="w-7 h-7 rounded-lg flex items-center justify-center bg-surface-700/40 border border-surface-600/50">
+            <img src={appIcon} alt="SpExtractor" className="10-5 h-5 object-contain" />
           </div>
           <div>
             <h1 className="text-sm font-bold text-white tracking-tight">SpExtractor</h1>
@@ -367,149 +381,149 @@ export default function App() {
           />
         ) : (
           <>
-        {/* ── Sidebar: Object Type Picker ── */}
-        <aside className="w-52 flex-shrink-0 border-r border-surface-600 flex flex-col py-3 gap-1 px-2"
-               style={{ background: 'rgba(11,16,26,0.8)' }}>
-          <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest px-2 mb-1">Object Type</p>
-          {OBJECT_TYPES.map(({ value, label, icon: Icon }) => (
-            <button
-              key={value}
-              onClick={() => handleTypeChange(value)}
-              disabled={!connInfo}
-              className={clsx(
-                'flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-all text-left',
-                value === objType && connInfo
-                  ? 'text-brand-light border border-brand-dark/50'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-surface-700/40',
-                !connInfo && 'opacity-30 cursor-not-allowed',
-              )}
-              style={value === objType && connInfo ? {
-                background: 'linear-gradient(135deg, rgba(0,74,119,0.3), rgba(0,119,182,0.15))',
-              } : {}}
-            >
-              <Icon className="w-4 h-4 flex-shrink-0" />
-              <span className="truncate">{label}</span>
-            </button>
-          ))}
-        </aside>
-
-        {/* ── Main Panel ── */}
-        <main className="flex-1 flex flex-col overflow-hidden p-4 gap-4">
-          {!connInfo ? (
-            /* Empty state */
-            <div className="flex-1 flex flex-col items-center justify-center gap-4">
-              <div className="p-5 rounded-2xl"
-                   style={{ background: 'rgba(0,74,119,0.15)', border: '1px solid rgba(0,74,119,0.3)' }}>
-                <Database className="w-12 h-12 text-brand-dark opacity-60" />
-              </div>
-              <div className="text-center">
-                <h2 className="text-lg font-semibold text-white mb-1">No connection</h2>
-                <p className="text-sm text-slate-500 mb-4">Connect to a database to start extracting objects.</p>
-                <button onClick={() => setShowConnDialog(true)} className="btn-primary">
-                  <Plug className="w-4 h-4" />
-                  Connect to database
-                </button>
-              </div>
-            </div>
-          ) : (
-            <>
-              {/* Toolbar */}
-              <div className="flex items-center gap-2 flex-shrink-0">
-                <div className="flex items-center gap-2">
-                  <ObjTypeIcon className="w-4 h-4 text-brand-light" />
-                  <span className="text-sm font-semibold text-white">
-                    {OBJECT_TYPES.find(t => t.value === objType)?.label}
-                  </span>
-                  {objects.length > 0 && (
-                    <span className="badge-blue">{objects.length}</span>
+            {/* ── Sidebar: Object Type Picker ── */}
+            <aside className="w-52 flex-shrink-0 border-r border-surface-600 flex flex-col py-3 gap-1 px-2"
+              style={{ background: 'rgba(11,16,26,0.8)' }}>
+              <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest px-2 mb-1">Object Type</p>
+              {OBJECT_TYPES.map(({ value, label, icon: Icon }) => (
+                <button
+                  key={value}
+                  onClick={() => handleTypeChange(value)}
+                  disabled={!connInfo}
+                  className={clsx(
+                    'flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-all text-left',
+                    value === objType && connInfo
+                      ? 'text-brand-light border border-brand-dark/50'
+                      : 'text-slate-400 hover:text-slate-200 hover:bg-surface-700/40',
+                    !connInfo && 'opacity-30 cursor-not-allowed',
                   )}
-                </div>
-                <div className="flex-1" />
-                <button
-                  onClick={() => loadObjects(objType, connInfo, true)}
-                  disabled={loadingObjects}
-                  className="btn-secondary text-xs py-1.5 px-3"
+                  style={value === objType && connInfo ? {
+                    background: 'linear-gradient(135deg, rgba(0,74,119,0.3), rgba(0,119,182,0.15))',
+                  } : {}}
                 >
-                  <RefreshCw className={clsx('w-3.5 h-3.5', loadingObjects && 'animate-spin')} />
-                  Refresh
+                  <Icon className="w-4 h-4 flex-shrink-0" />
+                  <span className="truncate">{label}</span>
                 </button>
-                <button
-                  onClick={handlePickDir}
-                  className="btn-secondary text-xs py-1.5 px-3"
-                >
-                  <FolderOpen className="w-3.5 h-3.5" />
-                  {outDir ? <span className="max-w-[120px] truncate">{outDir.split(/[\\/]/).pop()}</span> : 'Output folder'}
-                </button>
-                <button
-                  onClick={handleExport}
-                  disabled={exporting || selectedCount === 0}
-                  className="btn-primary text-xs py-1.5 px-3"
-                >
-                  {exporting ? (
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  ) : (
-                    <Download className="w-3.5 h-3.5" />
-                  )}
-                  Export {selectedCount > 0 ? `(${selectedCount})` : ''}
-                </button>
-              </div>
+              ))}
+            </aside>
 
-              {/* Error */}
-              {objError && (
-                <div className="flex items-center gap-2 rounded-lg px-3 py-2 bg-red-500/10 border border-red-500/30 text-red-400 text-sm flex-shrink-0">
-                  <AlertCircle className="w-4 h-4 flex-shrink-0" />
-                  {objError}
-                </div>
-              )}
-
-              {/* Object table / Preview */}
-              <div className="flex-1 overflow-hidden">
-                {loadingObjects ? (
-                  <div className="flex items-center justify-center h-full gap-3 text-slate-500">
-                    <Loader2 className="w-5 h-5 animate-spin text-brand-light" />
-                    <span className="text-sm">Loading…</span>
+            {/* ── Main Panel ── */}
+            <main className="flex-1 flex flex-col overflow-hidden p-4 gap-4">
+              {!connInfo ? (
+                /* Empty state */
+                <div className="flex-1 flex flex-col items-center justify-center gap-4">
+                  <div className="p-4 rounded-2xl flex items-center justify-center">
+                    <img src={appIcon} alt="SpExtractor" className="w-48 h-48 object-contain drop-shadow" />
                   </div>
-                ) : relationsObj ? (
-                  <RelationsPanel
-                    obj={relationsObj}
-                    onBack={() => setRelationsObj(null)}
-                    onOpenTable={openTableFromRelations}
-                  />
-                ) : previewObj ? (
-                  <PreviewPanel
-                    obj={previewObj}
-                    typeLabel={OBJECT_TYPES.find(t => t.value === objType)?.label || objType}
-                    definition={previewDef}
-                    loading={previewLoading}
-                    error={previewError}
-                    onRefresh={() => handlePreview(previewObj)}
-                    onBack={closePreview}
-                  />
-                ) : (
-                  <ObjectTable
-                    objects={objects}
-                    selectedKeys={selected}
-                    onSelectionChange={setSelected}
-                    onPreview={handlePreview}
-                    onRelations={objType === 'TABLE' ? setRelationsObj : undefined}
-                    previewKey={previewObj ? objKey(previewObj) : ''}
-                  />
-                )}
-              </div>
-
-              {/* Export bar */}
-              {exportProgress && (
-                <div className="flex-shrink-0">
-                  <ExportBar
-                    progress={exportProgress}
-                    onCancel={handleCancelExport}
-                    onOpenFolder={handleOpenFolder}
-                  />
+                  <div className="text-center">
+                    <h2 className="text-lg font-semibold text-white mb-1">No connection</h2>
+                    <p className="text-sm text-slate-500 mb-4">Connect to a database to start extracting objects.</p>
+                    <button onClick={() => setShowConnDialog(true)} className="btn-primary">
+                      <Plug className="w-4 h-4" />
+                      Connect to database
+                    </button>
+                  </div>
                 </div>
+              ) : (
+                <>
+                  {/* Toolbar */}
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <div className="flex items-center gap-2">
+                      <ObjTypeIcon className="w-4 h-4 text-brand-light" />
+                      <span className="text-sm font-semibold text-white">
+                        {OBJECT_TYPES.find(t => t.value === objType)?.label}
+                      </span>
+                      {objects.length > 0 && (
+                        <span className="badge-blue">{objects.length}</span>
+                      )}
+                    </div>
+                    <div className="flex-1" />
+                    <button
+                      onClick={() => loadObjects(objType, connInfo, true)}
+                      disabled={loadingObjects}
+                      className="btn-secondary text-xs py-1.5 px-3"
+                    >
+                      <RefreshCw className={clsx('w-3.5 h-3.5', loadingObjects && 'animate-spin')} />
+                      Refresh
+                    </button>
+                    <button
+                      onClick={handlePickDir}
+                      className="btn-secondary text-xs py-1.5 px-3"
+                    >
+                      <FolderOpen className="w-3.5 h-3.5" />
+                      {outDir ? <span className="max-w-[120px] truncate">{outDir.split(/[\\/]/).pop()}</span> : 'Output folder'}
+                    </button>
+                    <button
+                      onClick={handleExport}
+                      disabled={exporting || selectedCount === 0}
+                      className="btn-primary text-xs py-1.5 px-3"
+                    >
+                      {exporting ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Download className="w-3.5 h-3.5" />
+                      )}
+                      Export {selectedCount > 0 ? `(${selectedCount})` : ''}
+                    </button>
+                  </div>
+
+                  {/* Error */}
+                  {objError && (
+                    <div className="flex items-center gap-2 rounded-lg px-3 py-2 bg-red-500/10 border border-red-500/30 text-red-400 text-sm flex-shrink-0">
+                      <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                      {objError}
+                    </div>
+                  )}
+
+                  {/* Object table / Preview */}
+                  <div className="flex-1 overflow-hidden">
+                    {loadingObjects ? (
+                      <div className="flex items-center justify-center h-full gap-3 text-slate-500">
+                        <Loader2 className="w-5 h-5 animate-spin text-brand-light" />
+                        <span className="text-sm">Loading…</span>
+                      </div>
+                    ) : relationsObj ? (
+                      <RelationsPanel
+                        obj={relationsObj}
+                        onBack={() => setRelationsObj(null)}
+                        onOpenTable={openTableFromRelations}
+                      />
+                    ) : previewObj ? (
+                      <PreviewPanel
+                        obj={previewObj}
+                        typeLabel={OBJECT_TYPES.find(t => t.value === objType)?.label || objType}
+                        definition={previewDef}
+                        loading={previewLoading}
+                        error={previewError}
+                        onRefresh={() => { defCacheRef.current.delete(objKey(previewObj)); handlePreview(previewObj) }}
+                        onBack={closePreview}
+                      />
+                    ) : (
+                      <ObjectTable
+                        objects={objects}
+                        objType={objType}
+                        selectedKeys={selected}
+                        onSelectionChange={setSelected}
+                        onPreview={handlePreview}
+                        onRelations={objType === 'TABLE' ? setRelationsObj : undefined}
+                        previewKey={previewObj ? objKey(previewObj) : ''}
+                      />
+                    )}
+                  </div>
+
+                  {/* Export bar */}
+                  {exportProgress && (
+                    <div className="flex-shrink-0">
+                      <ExportBar
+                        progress={exportProgress}
+                        onCancel={handleCancelExport}
+                        onOpenFolder={handleOpenFolder}
+                      />
+                    </div>
+                  )}
+                </>
               )}
-            </>
-          )}
-        </main>
+            </main>
           </>
         )}
       </div>

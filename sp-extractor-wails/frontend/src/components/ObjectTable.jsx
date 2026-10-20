@@ -1,13 +1,30 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import { Search, CheckSquare, Square, Minus, ChevronUp, ChevronDown, Eye, Network } from 'lucide-react'
 import clsx from 'clsx'
 
-export default function ObjectTable({ objects, selectedKeys, onSelectionChange, onPreview, previewKey, onRelations }) {
+export default function ObjectTable({ objects, objType, selectedKeys, onSelectionChange, onPreview, previewKey, onRelations }) {
   const [search, setSearch] = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
   const [sortDir, setSortDir] = useState('asc')
+  const debounceRef = useRef(null)
+
+  // Reset search when switching object types.
+  useEffect(() => {
+    setSearch('')
+    setDebouncedSearch('')
+  }, [objType])
+
+  // For COLUMN type (thousands of rows) apply a 350ms debounce so the list
+  // does not recompute on every keystroke.
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    const delay = objType === 'COLUMN' ? 350 : 0
+    debounceRef.current = setTimeout(() => setDebouncedSearch(search), delay)
+    return () => { if (debounceRef.current) clearTimeout(debounceRef.current) }
+  }, [search, objType])
 
   const filtered = useMemo(() => {
-    const q = search.toLowerCase()
+    const q = debouncedSearch.toLowerCase()
     return objects
       .filter(o => o.name?.toLowerCase().includes(q) || o.schema?.toLowerCase().includes(q))
       .sort((a, b) => {
@@ -15,7 +32,11 @@ export default function ObjectTable({ objects, selectedKeys, onSelectionChange, 
         const fb = (b.schema ? b.schema + '.' : '') + b.name
         return sortDir === 'asc' ? fa.localeCompare(fb) : fb.localeCompare(fa)
       })
-  }, [objects, search, sortDir])
+  }, [objects, debouncedSearch, sortDir])
+
+  const DISPLAY_LIMIT = 100
+  const displayed = filtered.length > DISPLAY_LIMIT ? filtered.slice(0, DISPLAY_LIMIT) : filtered
+  const hasMore = filtered.length > DISPLAY_LIMIT
 
   const allVisibleKeys = filtered.map(objKey)
   const allChecked = allVisibleKeys.length > 0 && allVisibleKeys.every(k => selectedKeys.has(k))
@@ -54,7 +75,7 @@ export default function ObjectTable({ objects, selectedKeys, onSelectionChange, 
           />
         </div>
         <span className="text-xs text-slate-500 whitespace-nowrap">
-          {selectedKeys.size} / {objects.length}
+          {selectedKeys.size} sel. · {hasMore ? `${DISPLAY_LIMIT}/${filtered.length} visibles` : filtered.length} · {objects.length} total
         </span>
       </div>
 
@@ -94,7 +115,7 @@ export default function ObjectTable({ objects, selectedKeys, onSelectionChange, 
                   {search ? 'No results match your search.' : 'No objects found.'}
                 </td>
               </tr>
-            ) : filtered.map((obj, i) => {
+            ) : displayed.map((obj, i) => {
               const key = objKey(obj)
               const checked = selectedKeys.has(key)
               return (
@@ -142,6 +163,13 @@ export default function ObjectTable({ objects, selectedKeys, onSelectionChange, 
                 </tr>
               )
             })}
+            {hasMore && (
+              <tr className="border-t border-surface-700/50">
+                <td colSpan={4} className="text-center py-3 text-xs text-amber-400/80">
+                  Mostrando {DISPLAY_LIMIT} de {filtered.length} resultados — refiná la búsqueda para ver más.
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>

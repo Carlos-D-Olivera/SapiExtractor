@@ -96,6 +96,11 @@ func (a *App) ListObjects(objType string) ([]db.DbObject, error) {
 }
 
 // GetDefinition fills and returns the definition for a single DbObject.
+// The DROP-if-exists header is embedded directly in the returned definition for
+// every object type that has one (SP, View, Function, Table, Trigger).
+// Columns already produce a complete self-contained script in FillDefinition.
+// The returned object can be cached as-is: preview, copy, save-as, export and
+// open-in-editor all see the same ready-to-run script.
 func (a *App) GetDefinition(obj db.DbObject) (db.DbObject, error) {
 	if a.conn == nil {
 		return obj, fmt.Errorf("not connected")
@@ -103,12 +108,16 @@ func (a *App) GetDefinition(obj db.DbObject) (db.DbObject, error) {
 	if err := a.extractor.FillDefinition(a.conn, &obj); err != nil {
 		return obj, err
 	}
+	// Prepend the DROP header for every type that has one.
+	// dropHeader returns "" for Column (its script already has guards), so
+	// this is a no-op for columns.
+	obj.Definition = dropHeader(obj) + obj.Definition
 	return obj, nil
 }
 
-// GetObjectText returns the definition of an object preceded by a DROP-if-exists
-// header (matching the old Java behaviour for copy / save-as / open-in-editor).
-// If the object carries no definition yet, it is fetched from the database.
+// GetObjectText returns the script text used for copy / save-as / open-in-editor.
+// The DROP header is already embedded in obj.Definition (set by GetDefinition),
+// so this function just normalises an empty definition and returns it.
 func (a *App) GetObjectText(obj db.DbObject) (string, error) {
 	if obj.Definition == "" {
 		if a.conn == nil {
@@ -117,6 +126,7 @@ func (a *App) GetObjectText(obj db.DbObject) (string, error) {
 		if err := a.extractor.FillDefinition(a.conn, &obj); err != nil {
 			return "", err
 		}
+		obj.Definition = dropHeader(obj) + obj.Definition
 	}
 	return objectTextWithHeader(obj), nil
 }
@@ -211,7 +221,9 @@ func (a *App) ExportObjects(req ExportRequest) error {
 		default:
 		}
 
-		// Lazy-load definition
+		// Lazy-load definition and embed DROP header for all applicable types.
+		// dropHeader returns "" for Column, which already has a self-contained
+		// script from FillDefinition, so this is a no-op for them.
 		if obj.Definition == "" {
 			if err := a.extractor.FillDefinition(a.conn, &obj); err != nil {
 				runtime.EventsEmit(a.ctx, "export:error", map[string]interface{}{
@@ -220,6 +232,7 @@ func (a *App) ExportObjects(req ExportRequest) error {
 				})
 				continue
 			}
+			obj.Definition = dropHeader(obj) + obj.Definition
 			req.Objects[i] = obj
 		}
 
@@ -482,14 +495,15 @@ func dropHeader(obj db.DbObject) string {
 		fullName, cond, keyword, fullName)
 }
 
-// objectTextWithHeader prepends the DROP header to the definition (parity with
-// the Java MainFrame.getObjectTextWithHeader).
+// objectTextWithHeader returns the script text for an object.
+// The DROP header is already embedded in obj.Definition by GetDefinition /
+// GetObjectText, so this function just normalises an empty definition.
 func objectTextWithHeader(obj db.DbObject) string {
 	def := obj.Definition
 	if def == "" {
 		def = "-- No definition available"
 	}
-	return dropHeader(obj) + def
+	return def
 }
 
 // defaultFileName builds the yyyyMMdd_<prefix>_<schema>_<name>.sql name used by
