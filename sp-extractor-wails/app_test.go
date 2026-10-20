@@ -133,3 +133,22 @@ func TestValueToString(t *testing.T) {
 		t.Errorf("valueToString(time.Time) = %v, expected formatted timestamp", got)
 	}
 }
+
+func TestIsPlainDML(t *testing.T) {
+	cases := map[string]bool{
+		"UPDATE t SET a = 1 WHERE id = 2":             true,
+		"  -- nota\n delete from t where id = 1;":     true,
+		"/* c */ INSERT INTO t (a) SELECT a FROM u":   true,
+		"INSERT INTO t OUTPUT inserted.id VALUES (1)": false,
+		"INSERT INTO t VALUES (1) RETURNING id":       false,
+		"UPDATE t SET a = 1; SELECT * FROM t":         false,
+		"SELECT * FROM t":                             false,
+		"UPDATED_VIEW":                                false,
+		"EXEC sp_x":                                   false,
+	}
+	for sqlText, want := range cases {
+		if got := isPlainDML(sqlText); got != want {
+			t.Errorf("isPlainDML(%q) = %v, want %v", sqlText, got, want)
+		}
+	}
+}

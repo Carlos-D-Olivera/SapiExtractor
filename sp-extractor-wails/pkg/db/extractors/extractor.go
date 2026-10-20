@@ -8,7 +8,9 @@ import (
 
 // Extractor is the Strategy interface — one implementation per DB engine.
 type Extractor interface {
-	ExtractObjects(conn *sql.DB, objType db.DbObjectType) ([]db.DbObject, error)
+	// ExtractObjects lists objects of a type. term (optional) filters by schema/name
+	// substring, case-insensitive; limit > 0 caps the rows. Both are applied in SQL.
+	ExtractObjects(conn *sql.DB, objType db.DbObjectType, term string, limit int) ([]db.DbObject, error)
 	FillDefinition(conn *sql.DB, obj *db.DbObject) error
 	// SearchTables returns tables whose name matches term (substring, case-insensitive).
 	SearchTables(conn *sql.DB, term string, limit int) ([]db.DbObject, error)
@@ -16,6 +18,8 @@ type Extractor interface {
 	ListForeignKeys(conn *sql.DB) ([]db.ForeignKey, error)
 	// TableColumns returns the columns of a table, flagging primary keys.
 	TableColumns(conn *sql.DB, schema, table string) ([]db.TableColumn, error)
+	// TableMeta returns the full structural metadata of a table (for script generation).
+	TableMeta(conn *sql.DB, schema, table string) (db.TableMeta, error)
 }
 
 // New returns the correct Extractor implementation for the given DB type.

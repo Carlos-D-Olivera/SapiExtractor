@@ -73,6 +73,46 @@ type SchemaModel struct {
 	Edges  []ForeignKey  `json:"edges"`
 }
 
+// MetaColumn is a column with everything needed to rebuild its DDL.
+type MetaColumn struct {
+	Name     string `json:"name"`
+	DataType string `json:"dataType"`
+	Nullable bool   `json:"nullable"`
+	Identity bool   `json:"identity"`
+	// IdentitySeed/IdentityStep are only meaningful for SQL Server identities.
+	IdentitySeed int64 `json:"identitySeed"`
+	IdentityStep int64 `json:"identityStep"`
+	// Default is the default expression, ready to emit verbatim ("" = none).
+	Default string `json:"default"`
+}
+
+// MetaIndex is a non-primary-key index.
+type MetaIndex struct {
+	Name     string   `json:"name"`
+	Unique   bool     `json:"unique"`
+	Columns  []string `json:"columns"`
+	Included []string `json:"included"`
+	// Definition, when set, is a complete CREATE INDEX statement (PostgreSQL).
+	Definition string `json:"definition"`
+}
+
+// TableMeta is the structural metadata of one table.
+type TableMeta struct {
+	Schema      string       `json:"schema"`
+	Name        string       `json:"name"`
+	Columns     []MetaColumn `json:"columns"`
+	PrimaryKey  []string     `json:"primaryKey"`
+	PrimaryName string       `json:"primaryName"`
+	Indexes     []MetaIndex  `json:"indexes"`
+	ForeignKeys []ForeignKey `json:"foreignKeys"` // outgoing FKs, one row per column
+}
+
+// TableScript is one generated script (DDL or DML template).
+type TableScript struct {
+	ID    string `json:"id"`
+	Label string `json:"label"`
+	SQL   string `json:"sql"`
+}
 
 // FilePrefix returns the short prefix used in exported filenames (parity with
 // the Java DbObjectType.getFilePrefix).

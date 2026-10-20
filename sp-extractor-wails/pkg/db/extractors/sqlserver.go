@@ -11,55 +11,99 @@ import (
 // SqlServerExtractor implements the Extractor interface for Microsoft SQL Server.
 type SqlServerExtractor struct{}
 
-func (e *SqlServerExtractor) ExtractObjects(conn *sql.DB, objType db.DbObjectType) ([]db.DbObject, error) {
+// sqlServerListing describes how to list one object type: the SELECT list, the
+// FROM/base-WHERE, the expressions a search term is matched against, and the order.
+type sqlServerListing struct {
+	cols    string
+	from    string
+	where   string
+	match   []string
+	order   string
+	withPar bool // third column is the parent name (triggers, columns)
+}
+
+func sqlServerListingFor(objType db.DbObjectType) (sqlServerListing, bool) {
 	switch objType {
 	case db.StoredProcedure:
-		return e.extractSPs(conn)
+		return sqlServerListing{
+			cols:  "SCHEMA_NAME(schema_id) AS SchemaName, name AS ObjectName",
+			from:  "sys.procedures",
+			match: []string{"SCHEMA_NAME(schema_id)", "name"},
+			order: "SchemaName, ObjectName",
+		}, true
 	case db.Table:
-		return e.extractTables(conn)
-	case db.Column:
-		return e.extractColumns(conn)
-	case db.Function:
-		return e.extractFunctions(conn)
-	case db.Trigger:
-		return e.extractTriggers(conn)
+		return sqlServerListing{
+			cols:  "SCHEMA_NAME(schema_id) AS SchemaName, name AS ObjectName",
+			from:  "sys.tables",
+			match: []string{"SCHEMA_NAME(schema_id)", "name"},
+			order: "SchemaName, ObjectName",
+		}, true
 	case db.View:
-		return e.extractViews(conn)
+		return sqlServerListing{
+			cols:  "SCHEMA_NAME(schema_id) AS SchemaName, name AS ObjectName",
+			from:  "sys.views",
+			match: []string{"SCHEMA_NAME(schema_id)", "name"},
+			order: "SchemaName, ObjectName",
+		}, true
+	case db.Function:
+		return sqlServerListing{
+			cols:  "SCHEMA_NAME(schema_id) AS SchemaName, name AS ObjectName",
+			from:  "sys.objects",
+			where: "type IN ('FN','IF','TF','FS','FT')",
+			match: []string{"SCHEMA_NAME(schema_id)", "name"},
+			order: "SchemaName, ObjectName",
+		}, true
+	case db.Trigger:
+		return sqlServerListing{
+			cols:    "SCHEMA_NAME(o.schema_id) AS SchemaName, t.name AS ObjectName, o.name AS ParentName",
+			from:    "sys.triggers t INNER JOIN sys.objects o ON t.parent_id = o.object_id",
+			match:   []string{"SCHEMA_NAME(o.schema_id)", "t.name", "o.name"},
+			order:   "SchemaName, ObjectName",
+			withPar: true,
+		}, true
+	case db.Column:
+		return sqlServerListing{
+			cols:    "SCHEMA_NAME(t.schema_id) AS SchemaName, c.name AS ObjectName, t.name AS ParentName",
+			from:    "sys.columns c INNER JOIN sys.tables t ON c.object_id = t.object_id",
+			match:   []string{"SCHEMA_NAME(t.schema_id)", "t.name", "c.name"},
+			order:   "SchemaName, ParentName, ObjectName",
+			withPar: true,
+		}, true
 	}
-	return nil, nil
+	return sqlServerListing{}, false
 }
 
-func (e *SqlServerExtractor) extractSPs(conn *sql.DB) ([]db.DbObject, error) {
-	query := `SELECT SCHEMA_NAME(schema_id) AS SchemaName, name AS ProcedureName
-	          FROM sys.procedures ORDER BY SchemaName, ProcedureName`
-	return e.queryObjects(conn, query, db.StoredProcedure)
-}
+// ExtractObjects lists objects of a type. term filters by schema/name (substring,
+// case-insensitive) and limit > 0 caps the number of rows; both are applied in SQL.
+func (e *SqlServerExtractor) ExtractObjects(conn *sql.DB, objType db.DbObjectType, term string, limit int) ([]db.DbObject, error) {
+	l, ok := sqlServerListingFor(objType)
+	if !ok {
+		return nil, nil
+	}
+	top := ""
+	if limit > 0 {
+		top = fmt.Sprintf("TOP (%d) ", limit)
+	}
+	var conds []string
+	var args []any
+	if l.where != "" {
+		conds = append(conds, l.where)
+	}
+	if term != "" {
+		likes := make([]string, len(l.match))
+		for i, expr := range l.match {
+			likes[i] = expr + ` LIKE @p1 ESCAPE '\'`
+		}
+		conds = append(conds, "("+strings.Join(likes, " OR ")+")")
+		args = append(args, "%"+escapeLike(term)+"%")
+	}
+	query := "SELECT " + top + l.cols + " FROM " + l.from
+	if len(conds) > 0 {
+		query += " WHERE " + strings.Join(conds, " AND ")
+	}
+	query += " ORDER BY " + l.order
 
-func (e *SqlServerExtractor) extractTables(conn *sql.DB) ([]db.DbObject, error) {
-	query := `SELECT SCHEMA_NAME(schema_id) AS SchemaName, name AS ObjectName
-	          FROM sys.tables ORDER BY SchemaName, ObjectName`
-	return e.queryObjects(conn, query, db.Table)
-}
-
-func (e *SqlServerExtractor) extractViews(conn *sql.DB) ([]db.DbObject, error) {
-	query := `SELECT SCHEMA_NAME(schema_id) AS SchemaName, name AS ObjectName
-	          FROM sys.views ORDER BY SchemaName, ObjectName`
-	return e.queryObjects(conn, query, db.View)
-}
-
-func (e *SqlServerExtractor) extractFunctions(conn *sql.DB) ([]db.DbObject, error) {
-	query := `SELECT SCHEMA_NAME(schema_id) AS SchemaName, name AS ObjectName
-	          FROM sys.objects WHERE type IN ('FN','IF','TF','FS','FT')
-	          ORDER BY SchemaName, ObjectName`
-	return e.queryObjects(conn, query, db.Function)
-}
-
-func (e *SqlServerExtractor) extractTriggers(conn *sql.DB) ([]db.DbObject, error) {
-	query := `SELECT SCHEMA_NAME(o.schema_id) AS SchemaName, t.name AS ObjectName, o.name AS ParentName
-	          FROM sys.triggers t
-	          INNER JOIN sys.objects o ON t.parent_id = o.object_id
-	          ORDER BY SchemaName, ObjectName`
-	rows, err := conn.Query(query)
+	rows, err := conn.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -67,31 +111,15 @@ func (e *SqlServerExtractor) extractTriggers(conn *sql.DB) ([]db.DbObject, error
 	var list []db.DbObject
 	for rows.Next() {
 		var schema, name, parent string
-		if err := rows.Scan(&schema, &name, &parent); err != nil {
-			return nil, fmt.Errorf("scan trigger row: %w", err)
+		if l.withPar {
+			err = rows.Scan(&schema, &name, &parent)
+		} else {
+			err = rows.Scan(&schema, &name)
 		}
-		list = append(list, db.DbObject{Type: db.Trigger, Schema: schema, ParentName: parent, Name: name})
-	}
-	return list, rows.Err()
-}
-
-func (e *SqlServerExtractor) extractColumns(conn *sql.DB) ([]db.DbObject, error) {
-	query := `SELECT SCHEMA_NAME(t.schema_id) AS SchemaName, t.name AS TableName, c.name AS ColumnName
-	          FROM sys.columns c
-	          INNER JOIN sys.tables t ON c.object_id = t.object_id
-	          ORDER BY SchemaName, TableName, c.name`
-	rows, err := conn.Query(query)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var list []db.DbObject
-	for rows.Next() {
-		var schema, table, col string
-		if err := rows.Scan(&schema, &table, &col); err != nil {
-			return nil, fmt.Errorf("scan column row: %w", err)
+		if err != nil {
+			return nil, fmt.Errorf("scan object row: %w", err)
 		}
-		list = append(list, db.DbObject{Type: db.Column, Schema: schema, ParentName: table, Name: col})
+		list = append(list, db.DbObject{Type: objType, Schema: schema, ParentName: parent, Name: name})
 	}
 	return list, rows.Err()
 }
@@ -129,7 +157,7 @@ func (e *SqlServerExtractor) ListForeignKeys(conn *sql.DB) ([]db.ForeignKey, err
 	          INNER JOIN sys.columns pc ON pc.object_id = fkc.parent_object_id AND pc.column_id = fkc.parent_column_id
 	          INNER JOIN sys.tables rt ON rt.object_id = fkc.referenced_object_id
 	          INNER JOIN sys.columns rc ON rc.object_id = fkc.referenced_object_id AND rc.column_id = fkc.referenced_column_id
-	          ORDER BY fk.name`
+	          ORDER BY fk.name, fkc.constraint_column_id`
 	rows, err := conn.Query(query)
 	if err != nil {
 		return nil, err
@@ -182,23 +210,6 @@ func (e *SqlServerExtractor) TableColumns(conn *sql.DB, schema, table string) ([
 		})
 	}
 	return cols, rows.Err()
-}
-
-func (e *SqlServerExtractor) queryObjects(conn *sql.DB, query string, objType db.DbObjectType) ([]db.DbObject, error) {
-	rows, err := conn.Query(query)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var list []db.DbObject
-	for rows.Next() {
-		var schema, name string
-		if err := rows.Scan(&schema, &name); err != nil {
-			return nil, fmt.Errorf("scan object row: %w", err)
-		}
-		list = append(list, db.DbObject{Type: objType, Schema: schema, Name: name})
-	}
-	return list, rows.Err()
 }
 
 func (e *SqlServerExtractor) FillDefinition(conn *sql.DB, obj *db.DbObject) error {

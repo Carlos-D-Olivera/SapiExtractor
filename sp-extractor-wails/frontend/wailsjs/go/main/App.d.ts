@@ -14,9 +14,11 @@ export function DeleteConnection(arg1:config.SavedConnection):Promise<void>;
 
 export function Disconnect():Promise<void>;
 
-export function ExecuteQuery(arg1:string):Promise<main.QueryResponse>;
+export function ExecuteQuery(arg1:string,arg2:number):Promise<main.QueryResponse>;
 
 export function ExportObjects(arg1:main.ExportRequest):Promise<void>;
+
+export function GenerateTableScripts(arg1:string,arg2:string):Promise<Array<db.TableScript>>;
 
 export function GetDefinition(arg1:db.DbObject):Promise<db.DbObject>;
 
@@ -28,7 +30,7 @@ export function IsConnected():Promise<boolean>;
 
 export function ListDatabases(arg1:db.ConnInfo):Promise<Array<string>>;
 
-export function ListObjects(arg1:string):Promise<Array<db.DbObject>>;
+export function ListObjects(arg1:string,arg2:string,arg3:number):Promise<Array<db.DbObject>>;
 
 export function LoadConnections():Promise<Array<config.SavedConnection>>;
 
@@ -39,5 +41,7 @@ export function PickDirectory():Promise<string>;
 export function SaveConnection(arg1:config.SavedConnection):Promise<void>;
 
 export function SaveObject(arg1:db.DbObject):Promise<string>;
+
+export function SaveScript(arg1:string,arg2:string):Promise<string>;
 
 export function SearchTables(arg1:string,arg2:number):Promise<Array<db.DbObject>>;

@@ -12,6 +12,7 @@ import ExportBar from './components/ExportBar'
 import PreviewPanel from './components/PreviewPanel'
 import QueryWorkspace from './components/QueryWorkspace'
 import RelationsPanel from './components/RelationsPanel'
+import ScriptsPanel from './components/ScriptsPanel'
 
 // ---------- Constants ----------
 const OBJECT_TYPES = [
@@ -28,6 +29,11 @@ const DB_LABELS = {
   MYSQL: 'MySQL',
   POSTGRESQL: 'PostgreSQL',
 }
+
+// Lists load only the first page; the rest is reached through the (server-side) search box.
+const INITIAL_LIMIT = 50
+const SEARCH_LIMIT = 200
+const SEARCH_DEBOUNCE_MS = 300
 
 // ---------- Lazy Wails bindings ----------
 let goApp = null
@@ -47,17 +53,26 @@ export default function App() {
   const [objType, setObjType] = useState('STORED_PROCEDURE')
   const [objects, setObjects] = useState([])
   const [loadingObjects, setLoadingObjects] = useState(false)
+  const [searching, setSearching] = useState(false)
+  const [search, setSearch] = useState('')
+  const [hasMore, setHasMore] = useState(false)           // list was cut at its limit
   const [objError, setObjError] = useState('')
   const [selected, setSelected] = useState(new Set())   // Set of objKey strings
   const [outDir, setOutDir] = useState('')
   const [exportProgress, setExportProgress] = useState(null)
   const [exporting, setExporting] = useState(false)
-  const cacheRef = useRef(new Map())         // objType -> DbObject[] (parity with Java cache)
+  const cacheRef = useRef(new Map())         // objType -> first page of DbObject[] (unfiltered)
+  const knownRef = useRef(new Map())         // objKey -> DbObject, so selections survive new searches
+  const reqRef = useRef(0)                   // guards against out-of-order list responses
+  const searchTimer = useRef(null)
   const [previewObj, setPreviewObj] = useState(null)
   const [previewDef, setPreviewDef] = useState('')
   const [previewLoading, setPreviewLoading] = useState(false)
   const [previewError, setPreviewError] = useState('')
   const [relationsObj, setRelationsObj] = useState(null) // table whose FK relations are shown
+  const [scriptsObj, setScriptsObj] = useState(null)     // table whose scripts are shown
+  const [incomingSql, setIncomingSql] = useState(null)  // { text, nonce } handed over to the query editor
+  const [connSeq, setConnSeq] = useState(0)              // bumps on every connection: remounts the query workspace
 
   // ---- Load saved connections ----
   const loadSavedConns = useCallback(async () => {
@@ -101,9 +116,13 @@ export default function App() {
   // ---- After connection ----
   const handleConnected = async (info) => {
     setConnInfo(info)
+    setConnSeq(n => n + 1)
+    setIncomingSql(null)
     setView('objects')
     setShowConnDialog(false)
     cacheRef.current.clear()
+    knownRef.current.clear()
+    setSearch('')
     setObjects([])
     setSelected(new Set())
     setObjError('')
@@ -112,6 +131,7 @@ export default function App() {
     setPreviewDef('')
     setPreviewError('')
     setRelationsObj(null)
+    setScriptsObj(null)
     // Save to history
     try {
       const api = await go()
@@ -137,6 +157,9 @@ export default function App() {
       await api.Disconnect()
     } catch { /* ignore */ }
     cacheRef.current.clear()
+    knownRef.current.clear()
+    clearTimeout(searchTimer.current)
+    setSearch('')
     setConnInfo(null)
     setView('objects')
     setObjects([])
@@ -146,6 +169,7 @@ export default function App() {
     setPreviewDef('')
     setPreviewError('')
     setRelationsObj(null)
+    setScriptsObj(null)
   }
 
   const handleDeleteSaved = async (conn) => {
@@ -156,33 +180,69 @@ export default function App() {
     } catch { /* ignore */ }
   }
 
-  // ---- Object listing (cached per type, like the Java app) ----
-  const loadObjects = useCallback(async (type, info, force = false) => {
-    if (!force && cacheRef.current.has(type)) {
-      setObjects(cacheRef.current.get(type))
-      setSelected(new Set())
+  // ---- Object listing: first page only; the search box filters in SQL ----
+  // term '' = default first page (cached per type); otherwise a server-side search.
+  const loadObjects = useCallback(async (type, info, force = false, term = '') => {
+    const req = ++reqRef.current
+    const searchMode = term !== ''
+    const limit = searchMode ? SEARCH_LIMIT : INITIAL_LIMIT
+    const remember = (list) => list.forEach(o => knownRef.current.set(objKey(o), o))
+
+    if (!searchMode && !force && cacheRef.current.has(type)) {
+      const cached = cacheRef.current.get(type)
+      setObjects(cached)
+      setHasMore(cached.length >= INITIAL_LIMIT)
       setObjError('')
+      setLoadingObjects(false)
+      setSearching(false)
       return
     }
-    setLoadingObjects(true)
+    if (searchMode) {
+      setSearching(true)
+    } else {
+      setLoadingObjects(true)
+      setObjects([])
+    }
     setObjError('')
-    setObjects([])
-    setSelected(new Set())
     try {
       const api = await go()
-      const list = await api.ListObjects(type)
-      cacheRef.current.set(type, list || [])
-      setObjects(list || [])
+      const list = (await api.ListObjects(type, term, limit)) || []
+      if (req !== reqRef.current) return // a newer request superseded this one
+      if (!searchMode) cacheRef.current.set(type, list)
+      remember(list)
+      setObjects(list)
+      setHasMore(list.length >= limit)
     } catch (e) {
-      setObjError(e.toString())
+      if (req === reqRef.current) setObjError(e.toString())
     } finally {
-      setLoadingObjects(false)
+      if (req === reqRef.current) {
+        setLoadingObjects(false)
+        setSearching(false)
+      }
     }
   }, [])
 
+  const handleSearchChange = (term) => {
+    setSearch(term)
+    clearTimeout(searchTimer.current)
+    if (!connInfo) return
+    searchTimer.current = setTimeout(() => loadObjects(objType, connInfo, false, term.trim()), SEARCH_DEBOUNCE_MS)
+  }
+
+  const refreshObjects = () => {
+    clearTimeout(searchTimer.current)
+    setSearch('')
+    setSelected(new Set())
+    loadObjects(objType, connInfo, true)
+  }
+
   const handleTypeChange = (type) => {
+    clearTimeout(searchTimer.current)
+    setSearch('')
+    setSelected(new Set())
     setObjType(type)
     setRelationsObj(null)
+    setScriptsObj(null)
     setPreviewObj(null)
     setPreviewDef('')
     setPreviewError('')
@@ -216,6 +276,9 @@ export default function App() {
   // Open a table (from the relations diagram) in the Tables section, showing its definition.
   const openTableFromRelations = useCallback(async (ref) => {
     setRelationsObj(null)
+    setScriptsObj(null)
+    clearTimeout(searchTimer.current)
+    setSearch('')
     setObjType('TABLE')
     if (connInfo) await loadObjects('TABLE', connInfo)
     handlePreview({ type: 'TABLE', schema: ref.schema, name: ref.name })
@@ -224,8 +287,9 @@ export default function App() {
   // F5 reloads the current preview, Escape returns to the list (Java shortcuts)
   useEffect(() => {
     const onKey = (e) => {
-      if (e.key === 'Escape' && relationsObj) {
+      if (e.key === 'Escape' && (relationsObj || scriptsObj)) {
         setRelationsObj(null)
+        setScriptsObj(null)
         return
       }
       if (!previewObj) return
@@ -239,6 +303,11 @@ export default function App() {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   })
+
+  const openScriptInQuery = (sqlText) => {
+    setIncomingSql({ text: sqlText, nonce: Date.now() })
+    setView('query')
+  }
 
   // ---- Export ----
   const handlePickDir = async () => {
@@ -254,7 +323,7 @@ export default function App() {
       await handlePickDir()
       return
     }
-    const selectedObjs = objects.filter(o => selected.has(objKey(o)))
+    const selectedObjs = [...selected].map(k => knownRef.current.get(k)).filter(Boolean)
     if (selectedObjs.length === 0) return
     setExporting(true)
     setExportProgress({ current: 0, total: selectedObjs.length, percent: 0, name: '' })
@@ -361,11 +430,19 @@ export default function App() {
 
       {/* ── Main Content ── */}
       <div className="flex-1 flex overflow-hidden">
-        {connInfo && view === 'query' ? (
-          <QueryWorkspace
-            connLabel={`${connInfo.dbName} · ${DB_LABELS[connInfo.dbType] || connInfo.dbType}`}
-          />
-        ) : (
+        {/* Query workspace stays mounted (hidden) so its tabs survive view switches */}
+        {connInfo && (
+          <div className={clsx('flex-1 flex flex-col overflow-hidden', view !== 'query' && 'hidden')}>
+            <QueryWorkspace
+              key={connSeq}
+              connLabel={`${connInfo.dbName} · ${DB_LABELS[connInfo.dbType] || connInfo.dbType}`}
+              dbType={connInfo.dbType}
+              incomingSql={incomingSql}
+              active={view === 'query'}
+            />
+          </div>
+        )}
+        {!(connInfo && view === 'query') && (
           <>
         {/* ── Sidebar: Object Type Picker ── */}
         <aside className="w-52 flex-shrink-0 border-r border-surface-600 flex flex-col py-3 gap-1 px-2"
@@ -421,12 +498,12 @@ export default function App() {
                     {OBJECT_TYPES.find(t => t.value === objType)?.label}
                   </span>
                   {objects.length > 0 && (
-                    <span className="badge-blue">{objects.length}</span>
+                    <span className="badge-blue" title={hasMore ? 'Hay más: usa el buscador' : undefined}>{objects.length}{hasMore ? '+' : ''}</span>
                   )}
                 </div>
                 <div className="flex-1" />
                 <button
-                  onClick={() => loadObjects(objType, connInfo, true)}
+                  onClick={refreshObjects}
                   disabled={loadingObjects}
                   className="btn-secondary text-xs py-1.5 px-3"
                 >
@@ -469,6 +546,12 @@ export default function App() {
                     <Loader2 className="w-5 h-5 animate-spin text-brand-light" />
                     <span className="text-sm">Loading…</span>
                   </div>
+                ) : scriptsObj ? (
+                  <ScriptsPanel
+                    obj={scriptsObj}
+                    onBack={() => setScriptsObj(null)}
+                    onOpenInQuery={openScriptInQuery}
+                  />
                 ) : relationsObj ? (
                   <RelationsPanel
                     obj={relationsObj}
@@ -491,7 +574,12 @@ export default function App() {
                     selectedKeys={selected}
                     onSelectionChange={setSelected}
                     onPreview={handlePreview}
+                    search={search}
+                    onSearchChange={handleSearchChange}
+                    searching={searching}
+                    hasMore={hasMore}
                     onRelations={objType === 'TABLE' ? setRelationsObj : undefined}
+                    onScripts={objType === 'TABLE' ? setScriptsObj : undefined}
                     previewKey={previewObj ? objKey(previewObj) : ''}
                   />
                 )}

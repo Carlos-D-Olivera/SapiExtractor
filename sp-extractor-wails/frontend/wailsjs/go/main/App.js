@@ -22,12 +22,16 @@ export function Disconnect() {
   return window['go']['main']['App']['Disconnect']();
 }
 
-export function ExecuteQuery(arg1) {
-  return window['go']['main']['App']['ExecuteQuery'](arg1);
+export function ExecuteQuery(arg1, arg2) {
+  return window['go']['main']['App']['ExecuteQuery'](arg1, arg2);
 }
 
 export function ExportObjects(arg1) {
   return window['go']['main']['App']['ExportObjects'](arg1);
+}
+
+export function GenerateTableScripts(arg1, arg2) {
+  return window['go']['main']['App']['GenerateTableScripts'](arg1, arg2);
 }
 
 export function GetDefinition(arg1) {
@@ -50,8 +54,8 @@ export function ListDatabases(arg1) {
   return window['go']['main']['App']['ListDatabases'](arg1);
 }
 
-export function ListObjects(arg1) {
-  return window['go']['main']['App']['ListObjects'](arg1);
+export function ListObjects(arg1, arg2, arg3) {
+  return window['go']['main']['App']['ListObjects'](arg1, arg2, arg3);
 }
 
 export function LoadConnections() {
@@ -72,6 +76,10 @@ export function SaveConnection(arg1) {
 
 export function SaveObject(arg1) {
   return window['go']['main']['App']['SaveObject'](arg1);
+}
+
+export function SaveScript(arg1, arg2) {
+  return window['go']['main']['App']['SaveScript'](arg1, arg2);
 }
 
 export function SearchTables(arg1, arg2) {

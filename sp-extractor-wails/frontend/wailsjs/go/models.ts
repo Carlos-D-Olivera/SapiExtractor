@@ -182,6 +182,23 @@ export namespace db {
 		}
 	}
 	
+	
+	export class TableScript {
+	    id: string;
+	    label: string;
+	    sql: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new TableScript(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.label = source["label"];
+	        this.sql = source["sql"];
+	    }
+	}
 
 }
 
@@ -222,6 +239,7 @@ export namespace main {
 	export class ResultSet {
 	    columns: string[];
 	    rows: string[][];
+	    truncated: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new ResultSet(source);
@@ -231,6 +249,7 @@ export namespace main {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.columns = source["columns"];
 	        this.rows = source["rows"];
+	        this.truncated = source["truncated"];
 	    }
 	}
 	export class QueryResponse {

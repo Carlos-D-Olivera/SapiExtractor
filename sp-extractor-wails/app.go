@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -15,6 +16,7 @@ import (
 	"sp-extractor-wails/pkg/config"
 	"sp-extractor-wails/pkg/db"
 	"sp-extractor-wails/pkg/db/extractors"
+	"sp-extractor-wails/pkg/db/scriptgen"
 )
 
 // App is the Wails application struct — all exported methods are available to the frontend.
@@ -86,13 +88,15 @@ func (a *App) IsConnected() bool {
 
 // ---- Object Extraction ----
 
-// ListObjects returns all database objects of the given type.
-func (a *App) ListObjects(objType string) ([]db.DbObject, error) {
+// ListObjects returns database objects of the given type. term filters by
+// schema/name (substring, case-insensitive) and limit > 0 caps the result,
+// both resolved in SQL; term "" and limit 0 return everything.
+func (a *App) ListObjects(objType, term string, limit int) ([]db.DbObject, error) {
 	if a.conn == nil {
 		return nil, fmt.Errorf("not connected")
 	}
 	t := db.DbObjectType(objType)
-	return a.extractor.ExtractObjects(a.conn, t)
+	return a.extractor.ExtractObjects(a.conn, t, strings.TrimSpace(term), limit)
 }
 
 // GetDefinition fills and returns the definition for a single DbObject.
@@ -272,8 +276,9 @@ func (a *App) PickDirectory() (string, error) {
 
 // ResultSet is a single tabular result produced by a SQL statement.
 type ResultSet struct {
-	Columns []string    `json:"columns"`
-	Rows    [][]*string `json:"rows"`
+	Columns   []string    `json:"columns"`
+	Rows      [][]*string `json:"rows"`
+	Truncated bool        `json:"truncated"` // true when more rows existed than maxRows
 }
 
 // QueryResponse is the outcome of executing one or more SQL statements.
@@ -286,8 +291,9 @@ type QueryResponse struct {
 
 // ExecuteQuery runs an arbitrary SQL statement/script against the current
 // connection and returns every result set it produces. NULL cells are
-// represented as null pointers.
-func (a *App) ExecuteQuery(sqlText string) (QueryResponse, error) {
+// represented as null pointers. maxRows caps the rows kept per result set
+// (0 = unlimited); sets cut short are flagged Truncated.
+func (a *App) ExecuteQuery(sqlText string, maxRows int) (QueryResponse, error) {
 	if a.conn == nil {
 		return QueryResponse{}, fmt.Errorf("not connected")
 	}
@@ -307,8 +313,24 @@ func (a *App) ExecuteQuery(sqlText string) (QueryResponse, error) {
 	}()
 
 	start := time.Now()
-	rows, err := a.conn.QueryContext(ctx, sqlText)
 	resp := QueryResponse{Sets: []ResultSet{}}
+
+	// Plain INSERT/UPDATE/DELETE/MERGE: Exec so we can report the rows affected.
+	if isPlainDML(sqlText) {
+		res, err := a.conn.ExecContext(ctx, sqlText)
+		if err != nil {
+			return resp, err
+		}
+		resp.DurationMs = time.Since(start).Milliseconds()
+		if n, err := res.RowsAffected(); err == nil && n >= 0 {
+			resp.Message = fmt.Sprintf("%d fila(s) afectada(s).", n)
+		} else {
+			resp.Message = "Comando ejecutado correctamente."
+		}
+		return resp, nil
+	}
+
+	rows, err := a.conn.QueryContext(ctx, sqlText)
 	if err != nil {
 		return resp, err
 	}
@@ -322,6 +344,10 @@ func (a *App) ExecuteQuery(sqlText string) (QueryResponse, error) {
 		if len(cols) > 0 {
 			set := ResultSet{Columns: cols, Rows: [][]*string{}}
 			for rows.Next() {
+				if maxRows > 0 && len(set.Rows) >= maxRows {
+					set.Truncated = true
+					break // remaining rows of this set are discarded by NextResultSet/Close
+				}
 				vals := make([]any, len(cols))
 				ptrs := make([]any, len(cols))
 				for i := range vals {
@@ -354,6 +380,22 @@ func (a *App) ExecuteQuery(sqlText string) (QueryResponse, error) {
 		resp.Message = fmt.Sprintf("%d conjunto(s) de resultados, %d fila(s).", len(resp.Sets), resp.RowCount)
 	}
 	return resp, nil
+}
+
+var (
+	dmlStart   = regexp.MustCompile(`(?i)^(insert|update|delete|merge)\b`)
+	dmlOutput  = regexp.MustCompile(`(?i)\b(output|returning)\b`)
+	sqlComment = regexp.MustCompile(`^(\s+|--[^\n]*(\n|$)|(?s:/\*.*?\*/))+`)
+)
+
+// isPlainDML reports whether sqlText is a single INSERT/UPDATE/DELETE/MERGE
+// statement that returns no rows (no OUTPUT / RETURNING clause). Anything
+// ambiguous (several statements, semicolons inside literals) returns false and
+// is run through the normal result-set path.
+func isPlainDML(sqlText string) bool {
+	s := sqlComment.ReplaceAllString(sqlText, "")
+	s = strings.TrimRight(s, " \t\r\n;")
+	return dmlStart.MatchString(s) && !strings.Contains(s, ";") && !dmlOutput.MatchString(s)
 }
 
 // CancelQuery aborts an in-progress query execution.
@@ -412,6 +454,42 @@ func (a *App) GetSchemaModel(schema, table string, depth int) (db.SchemaModel, e
 	return extractors.BuildSchemaModel(a.conn, fks, seed, depth, func(s, t string) ([]db.TableColumn, error) {
 		return a.extractor.TableColumns(a.conn, s, t)
 	})
+}
+
+// GenerateTableScripts builds DDL (CREATE TABLE, indexes, foreign keys) and DML
+// templates (SELECT/INSERT/UPDATE/DELETE) for a table in the current dialect.
+func (a *App) GenerateTableScripts(schema, table string) ([]db.TableScript, error) {
+	if a.conn == nil {
+		return nil, fmt.Errorf("not connected")
+	}
+	meta, err := a.extractor.TableMeta(a.conn, schema, table)
+	if err != nil {
+		return nil, fmt.Errorf("error reading table metadata: %w", err)
+	}
+	if len(meta.Columns) == 0 {
+		return nil, fmt.Errorf("table %s not found or has no columns", table)
+	}
+	return scriptgen.Generate(a.connInfo.DbType, meta), nil
+}
+
+// SaveScript opens a native save dialog and writes text to the chosen .sql file.
+// Returns the saved path, or "" if the dialog was cancelled.
+func (a *App) SaveScript(defaultName, text string) (string, error) {
+	path, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
+		Title:           "Guardar script",
+		DefaultFilename: defaultName,
+		Filters:         []runtime.FileFilter{{DisplayName: "SQL (*.sql)", Pattern: "*.sql"}},
+	})
+	if err != nil || path == "" {
+		return "", err
+	}
+	if !strings.HasSuffix(strings.ToLower(path), ".sql") {
+		path += ".sql"
+	}
+	if err := os.WriteFile(path, []byte(text), 0644); err != nil {
+		return "", fmt.Errorf("error writing %s: %w", path, err)
+	}
+	return path, nil
 }
 
 // ---- Saved Connections ----

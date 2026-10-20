@@ -11,15 +11,25 @@ import (
 // MySQLExtractor implements the Extractor interface for MySQL / MariaDB.
 type MySQLExtractor struct{}
 
-func (e *MySQLExtractor) ExtractObjects(conn *sql.DB, objType db.DbObjectType) ([]db.DbObject, error) {
+func (e *MySQLExtractor) ExtractObjects(conn *sql.DB, objType db.DbObjectType, term string, limit int) ([]db.DbObject, error) {
 	if objType != db.StoredProcedure {
 		return nil, nil
 	}
 	query := `SELECT ROUTINE_SCHEMA AS SchemaName, ROUTINE_NAME AS ProcedureName
 	          FROM information_schema.ROUTINES
-	          WHERE ROUTINE_TYPE = 'PROCEDURE' AND ROUTINE_SCHEMA = DATABASE()
-	          ORDER BY ProcedureName`
-	rows, err := conn.Query(query)
+	          WHERE ROUTINE_TYPE = 'PROCEDURE' AND ROUTINE_SCHEMA = DATABASE()`
+	var args []any
+	if term != "" {
+		query += ` AND (ROUTINE_NAME LIKE ? ESCAPE '\\' OR ROUTINE_SCHEMA LIKE ? ESCAPE '\\')`
+		pat := "%" + escapeLike(term) + "%"
+		args = append(args, pat, pat)
+	}
+	query += " ORDER BY ProcedureName"
+	if limit > 0 {
+		query += " LIMIT ?"
+		args = append(args, limit)
+	}
+	rows, err := conn.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -42,7 +52,7 @@ func (e *MySQLExtractor) SearchTables(conn *sql.DB, term string, limit int) ([]d
 	query := `SELECT TABLE_SCHEMA, TABLE_NAME
 	          FROM information_schema.TABLES
 	          WHERE TABLE_SCHEMA = DATABASE() AND TABLE_TYPE = 'BASE TABLE'
-	            AND TABLE_NAME LIKE ? ESCAPE '\'
+	            AND TABLE_NAME LIKE ? ESCAPE '\\'
 	          ORDER BY TABLE_NAME LIMIT ?`
 	rows, err := conn.Query(query, "%"+escapeLike(term)+"%", limit)
 	if err != nil {

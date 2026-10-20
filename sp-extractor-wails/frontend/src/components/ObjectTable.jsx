@@ -1,21 +1,19 @@
 import { useState, useMemo } from 'react'
-import { Search, CheckSquare, Square, Minus, ChevronUp, ChevronDown, Eye, Network } from 'lucide-react'
+import { Loader2, Search, CheckSquare, Square, Minus, ChevronUp, ChevronDown, Eye, Network, FileCode } from 'lucide-react'
 import clsx from 'clsx'
 
-export default function ObjectTable({ objects, selectedKeys, onSelectionChange, onPreview, previewKey, onRelations }) {
-  const [search, setSearch] = useState('')
+export default function ObjectTable({ objects, selectedKeys, onSelectionChange, onPreview, previewKey, onRelations, onScripts, search, onSearchChange, searching, hasMore }) {
   const [sortDir, setSortDir] = useState('asc')
 
+  // The list is already filtered (and capped) by the database; here we only sort.
   const filtered = useMemo(() => {
-    const q = search.toLowerCase()
-    return objects
-      .filter(o => o.name?.toLowerCase().includes(q) || o.schema?.toLowerCase().includes(q))
+    return [...objects]
       .sort((a, b) => {
         const fa = (a.schema ? a.schema + '.' : '') + a.name
         const fb = (b.schema ? b.schema + '.' : '') + b.name
         return sortDir === 'asc' ? fa.localeCompare(fb) : fb.localeCompare(fa)
       })
-  }, [objects, search, sortDir])
+  }, [objects, sortDir])
 
   const allVisibleKeys = filtered.map(objKey)
   const allChecked = allVisibleKeys.length > 0 && allVisibleKeys.every(k => selectedKeys.has(k))
@@ -48,13 +46,14 @@ export default function ObjectTable({ objects, selectedKeys, onSelectionChange, 
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500" />
           <input
             className="input-field pl-8 py-1.5"
-            placeholder="Search objects…"
+            placeholder="Buscar en toda la base de datos…"
             value={search}
-            onChange={e => setSearch(e.target.value)}
+            onChange={e => onSearchChange(e.target.value)}
           />
+          {searching && <Loader2 className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 animate-spin text-brand-light" />}
         </div>
         <span className="text-xs text-slate-500 whitespace-nowrap">
-          {selectedKeys.size} / {objects.length}
+          {selectedKeys.size} seleccionados · {objects.length}{hasMore ? '+' : ''}
         </span>
       </div>
 
@@ -122,6 +121,15 @@ export default function ObjectTable({ objects, selectedKeys, onSelectionChange, 
                   </td>
                   <td className="px-3 py-2 text-slate-400 text-xs">{obj.schema || '—'}</td>
                   <td className="w-10 px-3 py-2 whitespace-nowrap">
+                    {onScripts && (
+                      <button
+                        className="p-1 mr-1 rounded text-slate-500 hover:text-brand-light hover:bg-brand-dark/30 transition-colors"
+                        onClick={e => { e.stopPropagation(); onScripts(obj) }}
+                        title="Generar scripts (CREATE, SELECT, INSERT…)"
+                      >
+                        <FileCode className="w-3.5 h-3.5" />
+                      </button>
+                    )}
                     {onRelations && (
                       <button
                         className="p-1 mr-1 rounded text-slate-500 hover:text-brand-light hover:bg-brand-dark/30 transition-colors"
@@ -145,6 +153,11 @@ export default function ObjectTable({ objects, selectedKeys, onSelectionChange, 
           </tbody>
         </table>
       </div>
+      {hasMore && (
+        <p className="text-[11px] text-amber-400 mt-2">
+          Mostrando los primeros {objects.length}. Usa el buscador para encontrar el resto.
+        </p>
+      )}
     </div>
   )
 }

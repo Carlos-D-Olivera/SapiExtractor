@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import { Play, Plus, X, Loader2, AlertCircle, Ban, Clock, Table2, Trash2 } from 'lucide-react'
 import clsx from 'clsx'
+import SqlEditor from './SqlEditor'
 
 let tabSeq = 0
 function newTab() {
@@ -10,9 +11,62 @@ function newTab() {
 
 const go = () => import('../../wailsjs/go/main/App')
 
-export default function QueryWorkspace({ connLabel }) {
+// Applied only to queries that don't set their own limit (TOP / LIMIT / FETCH).
+const DEFAULT_ROW_LIMIT = 100
+const EXPLICIT_LIMIT = /\b(top\s*\(?\s*\d+|limit\s+\d+|fetch\s+(first|next)\b)/i
+
+const ROW_LIMITS = [
+  { value: 100, label: '100 filas' },
+  { value: 1000, label: '1.000 filas' },
+  { value: 5000, label: '5.000 filas' },
+  { value: 50000, label: '50.000 filas' },
+  { value: 0, label: 'Sin límite' },
+]
+
+// Builds { "schema.table": [cols], "table": [cols] } for editor autocompletion.
+function buildSchema(columns) {
+  const schema = {}
+  for (const c of columns) {
+    if (!c.parentName) continue
+    const qualified = c.schema ? `${c.schema}.${c.parentName}` : c.parentName
+    ;(schema[qualified] ||= []).push(c.name)
+    ;(schema[c.parentName] ||= [])
+    if (!schema[c.parentName].includes(c.name)) schema[c.parentName].push(c.name)
+  }
+  return schema
+}
+
+export default function QueryWorkspace({ connLabel, dbType, incomingSql, active: visible }) {
   const [tabs, setTabs] = useState(() => [newTab()])
   const [activeId, setActiveId] = useState(() => tabs[0].id)
+  const [maxRows, setMaxRows] = useState(DEFAULT_ROW_LIMIT)
+  const schemaLoaded = useRef(false)
+  const [schema, setSchema] = useState({})
+  const editorRef = useRef(null)
+  const lastNonce = useRef(incomingSql?.nonce)
+
+  // Table/column names for autocompletion: loaded once per connection, the first
+  // time the Consultas view is actually shown (not when the app starts).
+  useEffect(() => {
+    if (!visible || schemaLoaded.current) return
+    schemaLoaded.current = true
+    ;(async () => {
+      try {
+        const api = await go()
+        const cols = await api.ListObjects('COLUMN', '', 0)
+        setSchema(buildSchema(cols || []))
+      } catch { /* autocompletion just stays keyword-only */ }
+    })()
+  }, [visible])
+
+  // SQL pushed from elsewhere in the app (e.g. generated scripts) opens in a new tab.
+  useEffect(() => {
+    if (!incomingSql || incomingSql.nonce === lastNonce.current) return
+    lastNonce.current = incomingSql.nonce
+    const t = { ...newTab(), sql: incomingSql.text }
+    setTabs(prev => [...prev, t])
+    setActiveId(t.id)
+  }, [incomingSql])
 
   const active = tabs.find(t => t.id === activeId) || tabs[0]
 
@@ -38,18 +92,29 @@ export default function QueryWorkspace({ connLabel }) {
     })
   }
 
-  const runQuery = useCallback(async (tab) => {
+  // Runs the selected text when there is a selection, otherwise the whole editor.
+  const runQuery = useCallback(async (tab, selection) => {
     if (!tab || tab.running) return
-    if (!tab.sql.trim()) return
+    const text = (selection ?? tab.sql)
+    if (!text.trim()) return
     patchTab(tab.id, { running: true, error: '', result: null })
     try {
       const api = await go()
-      const result = await api.ExecuteQuery(tab.sql)
+      // A query with its own TOP/LIMIT/FETCH is left alone; everything else gets the cap.
+      const cap = EXPLICIT_LIMIT.test(text) ? 0 : maxRows
+      const result = await api.ExecuteQuery(text, cap)
       patchTab(tab.id, { result, running: false })
     } catch (e) {
       patchTab(tab.id, { error: e.toString(), running: false })
     }
-  }, [patchTab])
+  }, [patchTab, maxRows])
+
+  const currentSelection = () => {
+    const view = editorRef.current
+    if (!view) return null
+    const { from, to } = view.state.selection.main
+    return from === to ? null : view.state.sliceDoc(from, to)
+  }
 
   const cancelQuery = async (tab) => {
     try {
@@ -58,7 +123,11 @@ export default function QueryWorkspace({ connLabel }) {
     } catch { /* ignore */ }
   }
 
-  const clearEditor = (tab) => patchTab(tab.id, { sql: '', result: null, error: '' })
+  const clearEditor = (tab) => {
+    const view = editorRef.current
+    if (view) view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: '' } })
+    patchTab(tab.id, { sql: '', result: null, error: '' })
+  }
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
@@ -107,10 +176,10 @@ export default function QueryWorkspace({ connLabel }) {
           {/* Toolbar */}
           <div className="flex items-center gap-2 px-3 py-2 flex-shrink-0">
             <button
-              onClick={() => runQuery(active)}
+              onClick={() => runQuery(active, currentSelection())}
               disabled={active.running || !active.sql.trim()}
               className="btn-primary text-xs py-1.5 px-3"
-              title="Ejecutar (Ctrl+Enter)"
+              title="Ejecutar (Ctrl+Enter). Si hay texto seleccionado, ejecuta solo la selección"
             >
               {active.running
                 ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -128,29 +197,35 @@ export default function QueryWorkspace({ connLabel }) {
               Limpiar
             </button>
             <div className="flex-1" />
-            <span className="text-[10px] text-slate-600">Ctrl+Enter para ejecutar</span>
+            <label className="flex items-center gap-1.5 text-[10px] text-slate-500">
+              Límite (si la consulta no trae TOP/LIMIT)
+              <select
+                value={maxRows}
+                onChange={e => setMaxRows(Number(e.target.value))}
+                className="rounded-md px-1.5 py-1 text-xs bg-surface-800 border border-surface-600 text-slate-300 outline-none"
+              >
+                {ROW_LIMITS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            </label>
+            <span className="text-[10px] text-slate-600">Ctrl+Enter ejecuta · selección = solo eso</span>
           </div>
 
           {/* Editor */}
           <div className="px-3 flex-shrink-0">
-            <textarea
-              value={active.sql}
-              onChange={e => patchTab(active.id, { sql: e.target.value })}
-              onKeyDown={e => {
-                if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-                  e.preventDefault()
-                  runQuery(active)
-                }
-              }}
-              spellCheck={false}
-              placeholder="-- Escribe aquí tu consulta SQL. Ej: SELECT TOP 100 * FROM dbo.MiTabla"
-              className="w-full h-40 resize-y rounded-lg p-3 text-xs font-mono outline-none transition-all"
-              style={{
-                background: '#18191A',
-                color: '#e2e8f0',
-                border: '1px solid rgba(36,51,80,0.8)',
-              }}
-            />
+            <div
+              className="rounded-lg overflow-hidden resize-y"
+              style={{ height: 176, minHeight: 80, border: '1px solid rgba(36,51,80,0.8)' }}
+            >
+              <SqlEditor
+                key={active.id}
+                value={active.sql}
+                onChange={sqlText => patchTab(active.id, { sql: sqlText })}
+                dbType={dbType}
+                schema={schema}
+                viewRef={editorRef}
+                onRun={selection => runQuery(active, selection)}
+              />
+            </div>
           </div>
 
           {/* Results */}
@@ -212,6 +287,11 @@ function ResultGrid({ set, index, total }) {
     <div className="flex flex-col min-h-0">
       {total > 1 && (
         <div className="text-[10px] text-slate-500 mb-1">Resultado {index + 1} · {rows.length} fila(s)</div>
+      )}
+      {set.truncated && (
+        <div className="text-[11px] text-amber-400 mb-1">
+          Mostrando solo las primeras {rows.length} filas; hay más. Sube el límite o acota la consulta.
+        </div>
       )}
       <div className="overflow-auto rounded-xl border border-surface-600" style={{ maxHeight: '45vh' }}>
         <table className="text-xs border-collapse">

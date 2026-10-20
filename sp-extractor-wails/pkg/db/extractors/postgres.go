@@ -11,7 +11,7 @@ import (
 // PostgresExtractor implements the Extractor interface for PostgreSQL.
 type PostgresExtractor struct{}
 
-func (e *PostgresExtractor) ExtractObjects(conn *sql.DB, objType db.DbObjectType) ([]db.DbObject, error) {
+func (e *PostgresExtractor) ExtractObjects(conn *sql.DB, objType db.DbObjectType, term string, limit int) ([]db.DbObject, error) {
 	if objType != db.StoredProcedure {
 		return nil, nil
 	}
@@ -19,9 +19,18 @@ func (e *PostgresExtractor) ExtractObjects(conn *sql.DB, objType db.DbObjectType
 	          FROM pg_proc p
 	          INNER JOIN pg_namespace n ON n.oid = p.pronamespace
 	          WHERE (p.prokind = 'p' OR p.prokind = 'f')
-	            AND n.nspname NOT IN ('pg_catalog', 'information_schema')
-	          ORDER BY SchemaName, ProcedureName`
-	rows, err := conn.Query(query)
+	            AND n.nspname NOT IN ('pg_catalog', 'information_schema')`
+	var args []any
+	if term != "" {
+		query += ` AND (p.proname ILIKE $1 OR n.nspname ILIKE $1)`
+		args = append(args, "%"+escapeLike(term)+"%")
+	}
+	query += " ORDER BY SchemaName, ProcedureName"
+	if limit > 0 {
+		args = append(args, limit)
+		query += fmt.Sprintf(" LIMIT $%d", len(args))
+	}
+	rows, err := conn.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -77,7 +86,7 @@ func (e *PostgresExtractor) ListForeignKeys(conn *sql.DB) ([]db.ForeignKey, erro
 	          INNER JOIN pg_attribute fa ON fa.attrelid = con.conrelid AND fa.attnum = k.fattnum
 	          INNER JOIN pg_attribute ta ON ta.attrelid = con.confrelid AND ta.attnum = k.tattnum
 	          WHERE con.contype = 'f'
-	          ORDER BY con.conname`
+	          ORDER BY con.conname, k.ord`
 	rows, err := conn.Query(query)
 	if err != nil {
 		return nil, err
