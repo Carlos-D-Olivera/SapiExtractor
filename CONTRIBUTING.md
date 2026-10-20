@@ -6,9 +6,9 @@
 
 ## 🧭 Estructura del Repositorio
 
-El proyecto contiene dos implementaciones:
+El proyecto contiene dos implementaciones organizadas en carpetas independientes:
 - `sp-extractor-wails/`: **Versión activa recomendada.** Desarrollada con Go 1.22+, Wails v2, React 19, Vite y Tailwind CSS.
-- `src/`: **Versión legacy.** Desarrollada con Java 17, Swing y FlatLaf (mantenida como referencia funcional).
+- `sp-extractor-java/`: **Versión legacy.** Desarrollada con Java 17, Swing y FlatLaf (mantenida como referencia funcional).
 
 ---
 
@@ -130,14 +130,18 @@ sp-extractor-wails/build/bin/sp-extractor.exe
 ## ☕ Versión Legacy (Java 17 / Swing)
 
 Si necesitas compilar o modificar la versión original en Java:
-- **Compilar el JAR sombreado (Uber-JAR):**
-  ```powershell
-  mvn clean package -DskipTests
-  ```
-- **Generar el ejecutable `.exe` con `jpackage` (requiere JDK 17+):**
-  ```powershell
-  .\build_exe.bat
-  ```
+1. Navega a la carpeta correspondiente:
+   ```powershell
+   cd sp-extractor-java
+   ```
+2. **Compilar el JAR sombreado (Uber-JAR):**
+   ```powershell
+   mvn clean package -DskipTests
+   ```
+3. **Generar el ejecutable `.exe` con `jpackage` (requiere JDK 17+):**
+   ```powershell
+   .\build_exe.bat
+   ```
 
 ---
 

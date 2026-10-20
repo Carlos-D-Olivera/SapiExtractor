@@ -58,7 +58,7 @@ El ejecutable optimizado e independiente se generará en:
 
 ## ☕ Versión Legacy (Java 17 + Swing)
 
-Para compilar y empaquetar la versión original basada en Java 17 y Swing (FlatMacDarkLaf):
+Ubicada en el subdirectorio `sp-extractor-java/`. Para compilar y empaquetar la versión original basada en Java 17 y Swing (FlatMacDarkLaf):
 
 ### Prerrequisitos
 - **JDK 17 o superior**
@@ -66,10 +66,13 @@ Para compilar y empaquetar la versión original basada en Java 17 y Swing (FlatM
 
 ### Compilar y Ejecutar
 ```powershell
-# Compilar el Uber-JAR
+# 1. Navegar a la carpeta de la versión Java
+cd sp-extractor-java
+
+# 2. Compilar el Uber-JAR
 mvn clean package -DskipTests
 
-# Empaquetar el ejecutable nativo (.exe) mediante jpackage
+# 3. Empaquetar el ejecutable nativo (.exe) mediante jpackage
 .\build_exe.bat
 ```
 
