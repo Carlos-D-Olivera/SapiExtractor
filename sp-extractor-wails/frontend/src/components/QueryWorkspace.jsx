@@ -1,7 +1,8 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
-import { Play, Plus, X, Loader2, AlertCircle, Ban, Clock, Table2, Trash2 } from 'lucide-react'
+import { Play, Plus, X, Loader2, AlertCircle, Ban, Clock, Table2, Trash2, Sparkles } from 'lucide-react'
 import clsx from 'clsx'
 import SqlEditor from './SqlEditor'
+import AutocompletesModal, { getStoredAutocompletes, saveStoredAutocompletes } from './AutocompletesModal'
 
 let tabSeq = 0
 function newTab() {
@@ -44,6 +45,13 @@ export default function QueryWorkspace({ connLabel, dbType, incomingSql, active:
   const [schema, setSchema] = useState({})
   const editorRef = useRef(null)
   const lastNonce = useRef(incomingSql?.nonce)
+  const [autocompletes, setAutocompletes] = useState(() => getStoredAutocompletes())
+  const [showAutocompletesModal, setShowAutocompletesModal] = useState(false)
+
+  const handleSaveAutocompletes = (newList) => {
+    setAutocompletes(newList)
+    saveStoredAutocompletes(newList)
+  }
 
   // Table/column names for autocompletion: loaded once per connection, the first
   // time the Consultas view is actually shown (not when the app starts).
@@ -196,6 +204,17 @@ export default function QueryWorkspace({ connLabel, dbType, incomingSql, active:
               <Trash2 className="w-3.5 h-3.5" />
               Limpiar
             </button>
+            <button
+              onClick={() => setShowAutocompletesModal(true)}
+              className="btn-secondary text-xs py-1.5 px-3 flex items-center gap-1.5"
+              title="Configurar códigos de autocompletado rápido con TAB"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+              AutoCompletes
+              <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-amber-400/20 text-amber-300 font-mono font-bold">
+                {autocompletes.length}
+              </span>
+            </button>
             <div className="flex-1" />
             <label className="flex items-center gap-1.5 text-[10px] text-slate-500">
               Límite (si la consulta no trae TOP/LIMIT)
@@ -222,6 +241,7 @@ export default function QueryWorkspace({ connLabel, dbType, incomingSql, active:
                 onChange={sqlText => patchTab(active.id, { sql: sqlText })}
                 dbType={dbType}
                 schema={schema}
+                autocompletes={autocompletes}
                 viewRef={editorRef}
                 onRun={selection => runQuery(active, selection)}
               />
@@ -233,6 +253,15 @@ export default function QueryWorkspace({ connLabel, dbType, incomingSql, active:
             <ResultArea tab={active} />
           </div>
         </>
+      )}
+
+      {/* AutoCompletes Modal */}
+      {showAutocompletesModal && (
+        <AutocompletesModal
+          autocompletes={autocompletes}
+          onSave={handleSaveAutocompletes}
+          onClose={() => setShowAutocompletesModal(false)}
+        />
       )}
     </div>
   )
