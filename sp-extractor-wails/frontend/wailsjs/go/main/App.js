@@ -34,6 +34,10 @@ export function ExportObjects(arg1) {
   return window['go']['main']['App']['ExportObjects'](arg1);
 }
 
+export function GenerateInsertScript(arg1) {
+  return window['go']['main']['App']['GenerateInsertScript'](arg1);
+}
+
 export function GenerateTableScripts(arg1, arg2) {
   return window['go']['main']['App']['GenerateTableScripts'](arg1, arg2);
 }

@@ -500,6 +500,7 @@ export default function App() {
               dbType={connInfo.dbType}
               incomingSql={incomingSql}
               active={view === 'query'}
+              onOpenInQuery={openScriptInQuery}
             />
           </div>
         )}

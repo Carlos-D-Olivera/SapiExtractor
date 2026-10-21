@@ -1,13 +1,14 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
-import { Play, Plus, X, Loader2, AlertCircle, Ban, Clock, Table2, Trash2, Sparkles } from 'lucide-react'
+import { Play, Plus, X, Loader2, AlertCircle, Ban, Clock, Table2, Trash2, Sparkles, FileCode2 } from 'lucide-react'
 import clsx from 'clsx'
 import SqlEditor from './SqlEditor'
 import AutocompletesModal, { getStoredAutocompletes, saveStoredAutocompletes } from './AutocompletesModal'
+import InsertScriptModal from './InsertScriptModal'
 
 let tabSeq = 0
 function newTab() {
   tabSeq += 1
-  return { id: `q${Date.now()}_${tabSeq}`, title: `Consulta ${tabSeq}`, sql: '', result: null, error: '', running: false }
+  return { id: `q${Date.now()}_${tabSeq}`, title: `Consulta ${tabSeq}`, sql: '', lastSql: '', result: null, error: '', running: false }
 }
 
 const go = () => import('../../wailsjs/go/main/App')
@@ -50,9 +51,10 @@ function buildSchema(columns) {
   return schema
 }
 
-export default function QueryWorkspace({ connLabel, dbType, incomingSql, active: visible }) {
+export default function QueryWorkspace({ connLabel, dbType, incomingSql, active: visible, onOpenInQuery }) {
   const [tabs, setTabs] = useState(() => [newTab()])
   const [activeId, setActiveId] = useState(() => tabs[0].id)
+  const [insertTarget, setInsertTarget] = useState(null)
   const [maxRows, setMaxRows] = useState(DEFAULT_ROW_LIMIT)
   const [fontSize, setFontSize] = useState(() => getStoredFontSize())
   const workspaceRef = useRef(null)
@@ -203,7 +205,7 @@ export default function QueryWorkspace({ connLabel, dbType, incomingSql, active:
     if (!tab || tab.running) return
     const text = (selection ?? tab.sql)
     if (!text.trim()) return
-    patchTab(tab.id, { running: true, error: '', result: null })
+    patchTab(tab.id, { running: true, error: '', result: null, lastSql: text })
     try {
       const api = await go()
       // A query with its own TOP/LIMIT/FETCH is left alone; everything else gets the cap.
@@ -232,7 +234,7 @@ export default function QueryWorkspace({ connLabel, dbType, incomingSql, active:
   const clearEditor = (tab) => {
     const view = editorRef.current
     if (view) view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: '' } })
-    patchTab(tab.id, { sql: '', result: null, error: '' })
+    patchTab(tab.id, { sql: '', lastSql: '', result: null, error: '' })
   }
 
   return (
@@ -380,7 +382,11 @@ export default function QueryWorkspace({ connLabel, dbType, incomingSql, active:
 
           {/* Results */}
           <div className="flex-1 overflow-hidden px-3 pb-3 pt-1">
-            <ResultArea tab={active} fontSize={fontSize} />
+            <ResultArea
+              tab={active}
+              fontSize={fontSize}
+              onInsertScript={set => setInsertTarget({ set, sql: active.lastSql || active.sql })}
+            />
           </div>
         </>
       )}
@@ -393,11 +399,22 @@ export default function QueryWorkspace({ connLabel, dbType, incomingSql, active:
           onClose={() => setShowAutocompletesModal(false)}
         />
       )}
+
+      {/* INSERT script generator */}
+      {insertTarget && (
+        <InsertScriptModal
+          set={insertTarget.set}
+          sql={insertTarget.sql}
+          dbType={dbType}
+          onClose={() => setInsertTarget(null)}
+          onOpenInQuery={onOpenInQuery}
+        />
+      )}
     </div>
   )
 }
 
-function ResultArea({ tab, fontSize }) {
+function ResultArea({ tab, fontSize, onInsertScript }) {
   if (tab.error) {
     return (
       <div className="flex items-start gap-2 rounded-lg px-3 py-2 bg-red-500/10 border border-red-500/30 text-red-400 text-sm overflow-auto h-full">
@@ -434,19 +451,31 @@ function ResultArea({ tab, fontSize }) {
         <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{durationMs} ms</span>
       </div>
       {sets.map((set, i) => (
-        <ResultGrid key={i} set={set} index={i} total={sets.length} fontSize={fontSize} />
+        <ResultGrid key={i} set={set} index={i} total={sets.length} fontSize={fontSize} onInsertScript={onInsertScript} />
       ))}
     </div>
   )
 }
 
-function ResultGrid({ set, index, total, fontSize }) {
+function ResultGrid({ set, index, total, fontSize, onInsertScript }) {
   const { columns = [], rows = [] } = set
   return (
     <div className="flex flex-col min-h-0">
-      {total > 1 && (
-        <div className="text-[10px] text-slate-500 mb-1">Resultado {index + 1} · {rows.length} fila(s)</div>
-      )}
+      <div className="flex items-center gap-2 mb-1">
+        {total > 1 && (
+          <span className="text-[10px] text-slate-500">Resultado {index + 1} · {rows.length} fila(s)</span>
+        )}
+        <div className="flex-1" />
+        <button
+          onClick={() => onInsertScript?.(set)}
+          disabled={rows.length === 0}
+          className="btn-secondary text-[11px] py-1 px-2"
+          title="Generar un script INSERT con las filas de este resultado"
+        >
+          <FileCode2 className="w-3 h-3" />
+          Script INSERT
+        </button>
+      </div>
       {set.truncated && (
         <div className="text-[11px] text-amber-400 mb-1">
           Mostrando solo las primeras {rows.length} filas; hay más. Sube el límite o acota la consulta.

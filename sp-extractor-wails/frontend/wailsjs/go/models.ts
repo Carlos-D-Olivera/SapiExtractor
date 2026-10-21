@@ -236,8 +236,37 @@ export namespace main {
 		    return a;
 		}
 	}
+	export class InsertScriptRequest {
+	    schema: string;
+	    table: string;
+	    columns: string[];
+	    types: string[];
+	    rows: string[][];
+	    detectTypes: boolean;
+	    batchSize: number;
+	    identityInsert: boolean;
+	    deleteFirst: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new InsertScriptRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.schema = source["schema"];
+	        this.table = source["table"];
+	        this.columns = source["columns"];
+	        this.types = source["types"];
+	        this.rows = source["rows"];
+	        this.detectTypes = source["detectTypes"];
+	        this.batchSize = source["batchSize"];
+	        this.identityInsert = source["identityInsert"];
+	        this.deleteFirst = source["deleteFirst"];
+	    }
+	}
 	export class ResultSet {
 	    columns: string[];
+	    types: string[];
 	    rows: string[][];
 	    truncated: boolean;
 	
@@ -248,6 +277,7 @@ export namespace main {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.columns = source["columns"];
+	        this.types = source["types"];
 	        this.rows = source["rows"];
 	        this.truncated = source["truncated"];
 	    }

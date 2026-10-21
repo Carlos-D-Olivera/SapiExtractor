@@ -20,6 +20,8 @@ export function ExecuteQuery(arg1:string,arg2:number):Promise<main.QueryResponse
 
 export function ExportObjects(arg1:main.ExportRequest):Promise<void>;
 
+export function GenerateInsertScript(arg1:main.InsertScriptRequest):Promise<string>;
+
 export function GenerateTableScripts(arg1:string,arg2:string):Promise<Array<db.TableScript>>;
 
 export function GetDefinition(arg1:db.DbObject):Promise<db.DbObject>;

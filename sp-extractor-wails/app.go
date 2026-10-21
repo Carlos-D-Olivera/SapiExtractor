@@ -300,6 +300,7 @@ func (a *App) PickDirectory() (string, error) {
 // ResultSet is a single tabular result produced by a SQL statement.
 type ResultSet struct {
 	Columns   []string    `json:"columns"`
+	Types     []string    `json:"types"` // database type name of each column, when available
 	Rows      [][]*string `json:"rows"`
 	Truncated bool        `json:"truncated"` // true when more rows existed than maxRows
 }
@@ -365,7 +366,7 @@ func (a *App) ExecuteQuery(sqlText string, maxRows int) (QueryResponse, error) {
 			return resp, err
 		}
 		if len(cols) > 0 {
-			set := ResultSet{Columns: cols, Rows: [][]*string{}}
+			set := ResultSet{Columns: cols, Types: columnTypeNames(rows), Rows: [][]*string{}}
 			for rows.Next() {
 				if maxRows > 0 && len(set.Rows) >= maxRows {
 					set.Truncated = true
@@ -431,6 +432,20 @@ func (a *App) CancelQuery() {
 	}
 }
 
+// columnTypeNames returns the driver's database type name for every column,
+// used to decide how result values are rendered in generated scripts.
+func columnTypeNames(rows *sql.Rows) []string {
+	types, err := rows.ColumnTypes()
+	if err != nil {
+		return nil
+	}
+	names := make([]string, len(types))
+	for i, ct := range types {
+		names[i] = ct.DatabaseTypeName()
+	}
+	return names
+}
+
 // valueToString converts a scanned database value into an optional string.
 func valueToString(v any) *string {
 	if v == nil {
@@ -493,6 +508,42 @@ func (a *App) GenerateTableScripts(schema, table string) ([]db.TableScript, erro
 		return nil, fmt.Errorf("table %s not found or has no columns", table)
 	}
 	return scriptgen.Generate(a.connInfo.DbType, meta), nil
+}
+
+// InsertScriptRequest carries a query result plus the options needed to turn it
+// into an INSERT script for the destination table.
+type InsertScriptRequest struct {
+	Schema         string      `json:"schema"`
+	Table          string      `json:"table"`
+	Columns        []string    `json:"columns"`
+	Types          []string    `json:"types"`
+	Rows           [][]*string `json:"rows"`
+	DetectTypes    bool        `json:"detectTypes"`
+	BatchSize      int         `json:"batchSize"`
+	IdentityInsert bool        `json:"identityInsert"`
+	DeleteFirst    bool        `json:"deleteFirst"`
+}
+
+// GenerateInsertScript renders INSERT statements that reproduce the given
+// result rows in the current dialect.
+func (a *App) GenerateInsertScript(req InsertScriptRequest) (string, error) {
+	if a.connInfo.DbType == "" {
+		return "", fmt.Errorf("not connected")
+	}
+	return scriptgen.GenerateInsert(a.connInfo.DbType,
+		scriptgen.InsertData{
+			Schema:  req.Schema,
+			Table:   req.Table,
+			Columns: req.Columns,
+			Types:   req.Types,
+			Rows:    req.Rows,
+		},
+		scriptgen.InsertOptions{
+			DetectTypes:    req.DetectTypes,
+			BatchSize:      req.BatchSize,
+			IdentityInsert: req.IdentityInsert,
+			DeleteFirst:    req.DeleteFirst,
+		})
 }
 
 // SaveScript opens a native save dialog and writes text to the chosen .sql file.

@@ -49,8 +49,9 @@ type gen struct {
 	m db.TableMeta
 }
 
-func (g gen) quote(id string) string {
-	switch g.t {
+// QuoteIdent renders an identifier using the dialect's quoting style.
+func QuoteIdent(t db.DatabaseType, id string) string {
+	switch t {
 	case db.MySQL:
 		return "`" + strings.ReplaceAll(id, "`", "``") + "`"
 	case db.PostgreSQL:
@@ -60,13 +61,19 @@ func (g gen) quote(id string) string {
 	}
 }
 
-func (g gen) qualified(schema, name string) string {
-	// In MySQL the "schema" is the database itself; omit it so scripts are portable across databases.
-	if schema == "" || g.t == db.MySQL {
-		return g.quote(name)
+// QualifiedName renders schema.name using the dialect's quoting style.
+// In MySQL the "schema" is the database itself; it is omitted so scripts stay
+// portable across databases.
+func QualifiedName(t db.DatabaseType, schema, name string) string {
+	if schema == "" || t == db.MySQL {
+		return QuoteIdent(t, name)
 	}
-	return g.quote(schema) + "." + g.quote(name)
+	return QuoteIdent(t, schema) + "." + QuoteIdent(t, name)
 }
+
+func (g gen) quote(id string) string { return QuoteIdent(g.t, id) }
+
+func (g gen) qualified(schema, name string) string { return QualifiedName(g.t, schema, name) }
 
 func (g gen) table() string { return g.qualified(g.m.Schema, g.m.Name) }
 
