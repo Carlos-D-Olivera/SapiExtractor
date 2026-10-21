@@ -47,6 +47,28 @@ func (e *PostgresExtractor) ExtractObjects(conn *sql.DB, objType db.DbObjectType
 	return list, rows.Err()
 }
 
+// CountObjects returns the total count of stored procedures, optionally filtered by term.
+func (e *PostgresExtractor) CountObjects(conn *sql.DB, objType db.DbObjectType, term string) (int, error) {
+	if objType != db.StoredProcedure {
+		return 0, nil
+	}
+	query := `SELECT COUNT(*)
+	          FROM pg_proc p
+	          INNER JOIN pg_namespace n ON n.oid = p.pronamespace
+	          WHERE (p.prokind = 'p' OR p.prokind = 'f')
+	            AND n.nspname NOT IN ('pg_catalog', 'information_schema')`
+	var args []any
+	if term != "" {
+		query += ` AND (p.proname ILIKE $1 OR n.nspname ILIKE $1)`
+		args = append(args, "%"+escapeLike(term)+"%")
+	}
+	var count int
+	if err := conn.QueryRow(query, args...).Scan(&count); err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
 // ---- Schema model support ----
 
 func (e *PostgresExtractor) SearchTables(conn *sql.DB, term string, limit int) ([]db.DbObject, error) {

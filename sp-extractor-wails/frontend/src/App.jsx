@@ -57,12 +57,15 @@ export default function App() {
   const [searching, setSearching] = useState(false)
   const [search, setSearch] = useState('')
   const [hasMore, setHasMore] = useState(false)           // list was cut at its limit
+  const [totalCount, setTotalCount] = useState(null)       // total count of objects for current objType
+  const [filteredCount, setFilteredCount] = useState(null) // count matching current search term (or null if not searching)
   const [objError, setObjError] = useState('')
   const [selected, setSelected] = useState(new Set())   // Set of objKey strings
   const [outDir, setOutDir] = useState('')
   const [exportProgress, setExportProgress] = useState(null)
   const [exporting, setExporting] = useState(false)
   const cacheRef = useRef(new Map())         // objType -> first page of DbObject[] (unfiltered)
+  const totalCountCacheRef = useRef(new Map()) // objType -> total count
   const knownRef = useRef(new Map())         // objKey -> DbObject, so selections survive new searches
   const reqRef = useRef(0)                   // guards against out-of-order list responses
   const searchTimer = useRef(null)
@@ -123,10 +126,13 @@ export default function App() {
     setView('objects')
     setShowConnDialog(false)
     cacheRef.current.clear()
+    totalCountCacheRef.current.clear()
     knownRef.current.clear()
     setSearch('')
     defCacheRef.current.clear()
     setObjects([])
+    setTotalCount(null)
+    setFilteredCount(null)
     setSelected(new Set())
     setObjError('')
     setExportProgress(null)
@@ -160,6 +166,7 @@ export default function App() {
       await api.Disconnect()
     } catch { /* ignore */ }
     cacheRef.current.clear()
+    totalCountCacheRef.current.clear()
     knownRef.current.clear()
     clearTimeout(searchTimer.current)
     setSearch('')
@@ -167,6 +174,8 @@ export default function App() {
     setConnInfo(null)
     setView('objects')
     setObjects([])
+    setTotalCount(null)
+    setFilteredCount(null)
     setSelected(new Set())
     setExportProgress(null)
     setPreviewObj(null)
@@ -194,8 +203,11 @@ export default function App() {
 
     if (!searchMode && !force && cacheRef.current.has(type)) {
       const cached = cacheRef.current.get(type)
+      const cachedTotal = totalCountCacheRef.current.get(type) ?? null
       setObjects(cached)
-      setHasMore(cached.length >= INITIAL_LIMIT)
+      setTotalCount(cachedTotal)
+      setFilteredCount(null)
+      setHasMore(cachedTotal !== null ? cachedTotal > cached.length : cached.length >= INITIAL_LIMIT)
       setObjError('')
       setLoadingObjects(false)
       setSearching(false)
@@ -206,16 +218,39 @@ export default function App() {
     } else {
       setLoadingObjects(true)
       setObjects([])
+      if (force || !totalCountCacheRef.current.has(type)) {
+        setTotalCount(null)
+      }
     }
     setObjError('')
     try {
       const api = await go()
-      const list = (await api.ListObjects(type, term, limit)) || []
+      const countPromise = (!searchMode && !force && totalCountCacheRef.current.has(type))
+        ? Promise.resolve(totalCountCacheRef.current.get(type))
+        : api.CountObjects(type, term).catch(() => null)
+
+      const [list, count] = await Promise.all([
+        api.ListObjects(type, term, limit),
+        countPromise,
+      ])
       if (req !== reqRef.current) return // a newer request superseded this one
-      if (!searchMode) cacheRef.current.set(type, list)
-      remember(list)
-      setObjects(list)
-      setHasMore(list.length >= limit)
+
+      const safeList = list || []
+      if (!searchMode) {
+        cacheRef.current.set(type, safeList)
+        if (count !== null) {
+          totalCountCacheRef.current.set(type, count)
+          setTotalCount(count)
+        }
+        setFilteredCount(null)
+        setHasMore(count !== null ? count > safeList.length : safeList.length >= limit)
+      } else {
+        setFilteredCount(count)
+        setHasMore(count !== null ? count > safeList.length : safeList.length >= limit)
+      }
+
+      remember(safeList)
+      setObjects(safeList)
     } catch (e) {
       if (req === reqRef.current) setObjError(e.toString())
     } finally {
@@ -230,6 +265,9 @@ export default function App() {
     setSearch(term)
     clearTimeout(searchTimer.current)
     if (!connInfo) return
+    if (!term.trim()) {
+      setFilteredCount(null)
+    }
     searchTimer.current = setTimeout(() => loadObjects(objType, connInfo, false, term.trim()), SEARCH_DEBOUNCE_MS)
   }
 
@@ -238,6 +276,9 @@ export default function App() {
     setSearch('')
     setSelected(new Set())
     defCacheRef.current.clear()
+    totalCountCacheRef.current.delete(objType)
+    setTotalCount(null)
+    setFilteredCount(null)
     loadObjects(objType, connInfo, true)
   }
 
@@ -251,6 +292,12 @@ export default function App() {
     setPreviewObj(null)
     setPreviewDef('')
     setPreviewError('')
+    setFilteredCount(null)
+    if (totalCountCacheRef.current.has(type)) {
+      setTotalCount(totalCountCacheRef.current.get(type))
+    } else {
+      setTotalCount(null)
+    }
     if (connInfo) loadObjects(type, connInfo)
   }
 
@@ -489,8 +536,16 @@ export default function App() {
               {!connInfo ? (
                 /* Empty state */
                 <div className="flex-1 flex flex-col items-center justify-center gap-4">
-                  <div className="p-4 rounded-2xl flex items-center justify-center">
-                    <img src={appIcon} alt="SpExtractor" className="w-48 h-48 object-contain drop-shadow" />
+                  <div className="relative p-4 rounded-2xl flex items-center justify-center">
+                    <div
+                      className="absolute inset-0 m-auto w-48 h-48 rounded-full pointer-events-none"
+                      style={{ background: 'radial-gradient(circle, rgba(0, 150, 199, 0.15) 0%, transparent 70%)' }}
+                    />
+                    <img
+                      src={appIcon}
+                      alt="SpExtractor"
+                      className="relative w-48 h-48 object-contain animate-heartbeat select-none cursor-pointer"
+                    />
                   </div>
                   <div className="text-center">
                     <h2 className="text-lg font-semibold text-white mb-1">No connection</h2>
@@ -510,7 +565,21 @@ export default function App() {
                       <span className="text-sm font-semibold text-white">
                         {OBJECT_TYPES.find(t => t.value === objType)?.label}
                       </span>
-                      {objects.length > 0 && (
+                      {search && filteredCount !== null ? (
+                        <span
+                          className="badge-blue"
+                          title={`${objects.length} mostrados de ${filteredCount.toLocaleString()} coincidentes (Total en BD: ${totalCount?.toLocaleString() || 'desconocido'})`}
+                        >
+                          {filteredCount.toLocaleString()} coincidentes
+                        </span>
+                      ) : totalCount !== null ? (
+                        <span
+                          className="badge-blue"
+                          title={`Total en BD: ${totalCount.toLocaleString()} objetos (${objects.length} cargados en vista)`}
+                        >
+                          {totalCount.toLocaleString()}
+                        </span>
+                      ) : objects.length > 0 && (
                         <span className="badge-blue" title={hasMore ? 'Hay más: usa el buscador' : undefined}>{objects.length}{hasMore ? '+' : ''}</span>
                       )}
                     </div>
@@ -591,6 +660,8 @@ export default function App() {
                         onSearchChange={handleSearchChange}
                         searching={searching}
                         hasMore={hasMore}
+                        totalCount={totalCount}
+                        filteredCount={filteredCount}
                         onRelations={objType === 'TABLE' ? setRelationsObj : undefined}
                         onScripts={objType === 'TABLE' ? setScriptsObj : undefined}
                         previewKey={previewObj ? objKey(previewObj) : ''}

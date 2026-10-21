@@ -2,7 +2,21 @@ import { useState, useMemo } from 'react'
 import { Loader2, Search, CheckSquare, Square, Minus, ChevronUp, ChevronDown, Eye, Network, FileCode } from 'lucide-react'
 import clsx from 'clsx'
 
-export default function ObjectTable({ objects, selectedKeys, onSelectionChange, onPreview, previewKey, onRelations, onScripts, search, onSearchChange, searching, hasMore }) {
+export default function ObjectTable({
+  objects,
+  selectedKeys,
+  onSelectionChange,
+  onPreview,
+  previewKey,
+  onRelations,
+  onScripts,
+  search,
+  onSearchChange,
+  searching,
+  hasMore,
+  totalCount,
+  filteredCount,
+}) {
   const [sortDir, setSortDir] = useState('asc')
 
   // The list is already filtered (and capped) by the database; here we only sort.
@@ -53,7 +67,19 @@ export default function ObjectTable({ objects, selectedKeys, onSelectionChange, 
           {searching && <Loader2 className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 animate-spin text-brand-light" />}
         </div>
         <span className="text-xs text-slate-500 whitespace-nowrap">
-          {selectedKeys.size} seleccionados · {objects.length}{hasMore ? '+' : ''}
+          {selectedKeys.size} seleccionados · {
+            search
+              ? (filteredCount != null
+                  ? (objects.length < filteredCount
+                      ? `${objects.length} de ${filteredCount.toLocaleString()} encontrados`
+                      : `${objects.length} encontrados`)
+                  : `${objects.length}`)
+              : (totalCount != null
+                  ? (objects.length < totalCount
+                      ? `${objects.length} de ${totalCount.toLocaleString()}`
+                      : `${totalCount.toLocaleString()} objetos`)
+                  : `${objects.length}${hasMore ? '+' : ''}`)
+          }
         </span>
       </div>
 
@@ -155,7 +181,9 @@ export default function ObjectTable({ objects, selectedKeys, onSelectionChange, 
       </div>
       {hasMore && (
         <p className="text-[11px] text-amber-400 mt-2">
-          Mostrando los primeros {objects.length}. Usa el buscador para encontrar el resto.
+          {search
+            ? `Mostrando los primeros ${objects.length} de ${filteredCount != null ? filteredCount.toLocaleString() : (objects.length + '+')} encontrados. Refina la búsqueda si no ves el que buscas.`
+            : `Mostrando los primeros ${objects.length} de ${totalCount != null ? totalCount.toLocaleString() : (objects.length + '+')}. Usa el buscador para encontrar el resto.`}
         </p>
       )}
     </div>
