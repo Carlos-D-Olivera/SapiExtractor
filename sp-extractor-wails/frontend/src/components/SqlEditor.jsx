@@ -119,9 +119,13 @@ export default function SqlEditor({ value, onChange, dbType, schema, autocomplet
         const to = head
         const query = matched.query
 
+        const selection = matched.seleccionar
+          ? EditorSelection.single(from, from + query.length)
+          : EditorSelection.cursor(from + query.length)
+
         view.dispatch({
           changes: { from, to, insert: query },
-          selection: EditorSelection.cursor(from + query.length),
+          selection,
           scrollIntoView: true,
         })
         return true

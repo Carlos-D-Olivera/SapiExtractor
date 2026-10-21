@@ -1,11 +1,17 @@
 import { useState, useEffect } from 'react'
-import { X, Plus, Trash2, RotateCcw, Sparkles, Check, AlertCircle } from 'lucide-react'
+import { X, Plus, Trash2, RotateCcw, Sparkles, Check, CheckSquare, Square } from 'lucide-react'
+import clsx from 'clsx'
 
 export const DEFAULT_AUTOCOMPLETES = [
-  { id: 'sel', code: 'sel', query: 'SELECT * FROM ' },
-  { id: 'ver', code: 'ver', query: 'SELECT * FROM admControlVersiones' },
-  { id: 'dbs', code: 'dbs', query: "SELECT * FROM admConfiguracion WHERE Codigo LIKE '%DBS%'" },
-  { id: 'chk', code: 'chk', query: "SELECT * FROM admConfiguracion WHERE Codigo = ''" },
+  { id: 'sel', code: 'sel', query: 'SELECT * FROM ', seleccionar: false },
+  { id: 'seltop', code: 'seltop', query: 'SELECT TOP 100 * FROM ', seleccionar: false },
+  { id: 'ver', code: 'ver', query: 'SELECT * FROM admControlVersiones', seleccionar: false },
+  { id: 'dbs', code: 'dbs', query: "SELECT * FROM admConfiguracion WHERE Codigo LIKE '%DBS%'", seleccionar: false },
+  { id: 'chk', code: 'chk', query: "SELECT * FROM admConfiguracion WHERE Codigo = ''", seleccionar: false },
+  { id: 'upd', code: 'upd', query: "UPDATE Tabla SET Columna = valor WHERE  condicion", seleccionar: false },
+  { id: 'users', code: 'users', query: "DECLARE @BD SYSNAME = DB_NAME(); EXEC master.dbo.usp_UsuariosPasswordModulo @BaseDatos = @BD", seleccionar: false },
+  { id: 'userf', code: 'userf', query: "DECLARE @BD SYSNAME = DB_NAME(); EXEC master.dbo.usp_UsuariosPasswordModulo @BaseDatos = @BD, @NombreModulo = 'Facturacion';", seleccionar: false },
+  { id: 'userhc', code: 'userhc', query: "DECLARE @BD SYSNAME = DB_NAME(); EXEC master.dbo.usp_UsuariosPasswordModulo @BaseDatos = @BD, @NombreModulo = 'Historia Clinica';", seleccionar: false }
 ]
 
 const STORAGE_KEY = 'spextractor_sql_autocompletes'
@@ -16,7 +22,10 @@ export function getStoredAutocompletes() {
     if (raw) {
       const parsed = JSON.parse(raw)
       if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed
+        return parsed.map(item => ({
+          ...item,
+          seleccionar: Boolean(item.seleccionar),
+        }))
       }
     }
   } catch (e) {
@@ -34,7 +43,10 @@ export function saveStoredAutocompletes(list) {
 }
 
 export default function AutocompletesModal({ autocompletes, onSave, onClose }) {
-  const [items, setItems] = useState(() => (autocompletes && autocompletes.length > 0 ? autocompletes : DEFAULT_AUTOCOMPLETES))
+  const [items, setItems] = useState(() => {
+    const list = autocompletes && autocompletes.length > 0 ? autocompletes : DEFAULT_AUTOCOMPLETES
+    return list.map(it => ({ ...it, seleccionar: Boolean(it.seleccionar) }))
+  })
   const [filter, setFilter] = useState('')
   const [savedNotice, setSavedNotice] = useState(false)
 
@@ -65,7 +77,7 @@ export default function AutocompletesModal({ autocompletes, onSave, onClose }) {
     const newId = `ac_${Date.now()}`
     const next = [
       ...items,
-      { id: newId, code: '', query: '' }
+      { id: newId, code: '', query: '', seleccionar: false }
     ]
     setItems(next)
     onSave(next)
@@ -128,7 +140,7 @@ export default function AutocompletesModal({ autocompletes, onSave, onClose }) {
           <div className="flex items-center gap-2">
             <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
             <span>
-              Mientras escribes en el editor, cualquier palabra coincidente se pintará de <strong className="text-amber-400 underline">amarillo</strong> (no importa mayúsculas o minúsculas).
+              Cualquier código coincidente se pinta de <strong className="text-amber-400 underline">amarillo</strong>. Si activas <strong>Seleccionar</strong>, el texto insertado quedará seleccionado de inmediato.
             </span>
           </div>
           {savedNotice && (
@@ -151,7 +163,7 @@ export default function AutocompletesModal({ autocompletes, onSave, onClose }) {
             <button
               onClick={resetDefaults}
               className="btn-secondary text-xs py-1.5 px-3 flex items-center gap-1.5 text-slate-400 hover:text-slate-200"
-              title="Restablecer a las consultas por defecto (sel, ver, dbs, chk)"
+              title="Restablecer a las consultas por defecto"
             >
               <RotateCcw className="w-3.5 h-3.5" />
               Valores por defecto
@@ -171,15 +183,18 @@ export default function AutocompletesModal({ autocompletes, onSave, onClose }) {
           <table className="w-full text-sm border-collapse">
             <thead>
               <tr className="border-b border-surface-600/80 text-left text-xs font-semibold text-slate-400">
-                <th className="pb-2.5 w-36 px-2">Código</th>
+                <th className="pb-2.5 w-32 px-2">Código</th>
                 <th className="pb-2.5 px-2">Consulta SQL resultante</th>
+                <th className="pb-2.5 w-28 text-center px-2" title="Selecciona automáticamente el texto al autocompletar">
+                  Seleccionar
+                </th>
                 <th className="pb-2.5 w-16 text-center">Acción</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-surface-700/40">
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={3} className="py-8 text-center text-slate-500 text-xs">
+                  <td colSpan={4} className="py-8 text-center text-slate-500 text-xs">
                     {filter ? 'No se encontraron autocompletados con ese término.' : 'No hay autocompletados registrados. Haz clic en "Agregar código" para crear uno.'}
                   </td>
                 </tr>
@@ -205,6 +220,26 @@ export default function AutocompletesModal({ autocompletes, onSave, onClose }) {
                         onChange={e => updateItem(item.id, 'query', e.target.value)}
                         className="w-full bg-surface-800/80 border border-surface-600/80 focus:border-brand-light focus:bg-surface-800 rounded-lg px-3 py-1.5 text-xs font-mono text-slate-200 outline-none transition-all placeholder:text-slate-600 resize-y min-h-[32px]"
                       />
+                    </td>
+                    <td className="py-2 px-2 text-center align-middle">
+                      <button
+                        type="button"
+                        onClick={() => updateItem(item.id, 'seleccionar', !item.seleccionar)}
+                        className={clsx(
+                          'p-1.5 rounded-lg transition-all inline-flex items-center justify-center gap-1 text-xs font-medium',
+                          item.seleccionar
+                            ? 'text-amber-300 bg-amber-400/20 border border-amber-400/40'
+                            : 'text-slate-500 hover:text-slate-300 hover:bg-surface-700/50 border border-transparent'
+                        )}
+                        title={item.seleccionar ? 'Selección automática activada' : 'Activar selección automática al autocompletar'}
+                      >
+                        {item.seleccionar ? (
+                          <CheckSquare className="w-4 h-4 text-amber-400" />
+                        ) : (
+                          <Square className="w-4 h-4 text-slate-500" />
+                        )}
+                        <span className="text-[11px]">{item.seleccionar ? 'Sí' : 'No'}</span>
+                      </button>
                     </td>
                     <td className="py-2 px-2 text-center align-middle">
                       <button
