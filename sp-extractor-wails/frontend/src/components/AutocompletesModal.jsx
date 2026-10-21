@@ -122,7 +122,7 @@ export default function AutocompletesModal({ autocompletes, onSave, onClose }) {
                 </span>
               </h2>
               <p className="text-xs text-slate-400">
-                Escribe el código en el editor y pulsa <kbd className="px-1.5 py-0.5 rounded bg-surface-700 text-amber-300 font-mono text-[11px] border border-surface-600">TAB</kbd> para insertar la consulta.
+                Escribe el código en el editor y pulsa <kbd className="px-1.5 py-0.5 rounded bg-surface-700 text-amber-300 font-mono text-[11px] border border-surface-600">TAB</kbd> para insertar la consulta. Usa <code className="text-amber-300 font-mono font-bold">#</code> para ubicar el cursor.
               </p>
             </div>
           </div>
@@ -140,7 +140,7 @@ export default function AutocompletesModal({ autocompletes, onSave, onClose }) {
           <div className="flex items-center gap-2">
             <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
             <span>
-              Cualquier código coincidente se pinta de <strong className="text-amber-400 underline">amarillo</strong>. Si activas <strong>Seleccionar</strong>, el texto insertado quedará seleccionado de inmediato.
+              Palabras coincidentes se pintan de <strong className="text-amber-400 underline">amarillo</strong>. Coloca <strong className="text-amber-300 font-mono">#</strong> en la consulta para situar el cursor ahí automáticamente (ej. <code className="bg-surface-800/80 px-1 py-0.5 rounded font-mono text-[11px]">Codigo = '#'</code>).
             </span>
           </div>
           {savedNotice && (

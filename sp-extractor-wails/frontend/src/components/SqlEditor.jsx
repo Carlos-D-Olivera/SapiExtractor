@@ -117,14 +117,29 @@ export default function SqlEditor({ value, onChange, dbType, schema, autocomplet
 
         const from = head - typedWord.length
         const to = head
-        const query = matched.query
+        const rawQuery = matched.query
 
-        const selection = matched.seleccionar
-          ? EditorSelection.single(from, from + query.length)
-          : EditorSelection.cursor(from + query.length)
+        let insertText = rawQuery
+        let selection
+
+        const firstHash = rawQuery.indexOf('#')
+        if (firstHash !== -1) {
+          const secondHash = rawQuery.indexOf('#', firstHash + 1)
+          if (secondHash !== -1) {
+            insertText = rawQuery.slice(0, firstHash) + rawQuery.slice(firstHash + 1, secondHash) + rawQuery.slice(secondHash + 1)
+            selection = EditorSelection.single(from + firstHash, from + secondHash - 1)
+          } else {
+            insertText = rawQuery.slice(0, firstHash) + rawQuery.slice(firstHash + 1)
+            selection = EditorSelection.cursor(from + firstHash)
+          }
+        } else if (matched.seleccionar) {
+          selection = EditorSelection.single(from, from + insertText.length)
+        } else {
+          selection = EditorSelection.cursor(from + insertText.length)
+        }
 
         view.dispatch({
-          changes: { from, to, insert: query },
+          changes: { from, to, insert: insertText },
           selection,
           scrollIntoView: true,
         })
