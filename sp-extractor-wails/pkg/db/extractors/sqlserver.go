@@ -124,6 +124,36 @@ func (e *SqlServerExtractor) ExtractObjects(conn *sql.DB, objType db.DbObjectTyp
 	return list, rows.Err()
 }
 
+// CountObjects returns the total count of objects of a type, optionally filtered by term.
+func (e *SqlServerExtractor) CountObjects(conn *sql.DB, objType db.DbObjectType, term string) (int, error) {
+	l, ok := sqlServerListingFor(objType)
+	if !ok {
+		return 0, nil
+	}
+	var conds []string
+	var args []any
+	if l.where != "" {
+		conds = append(conds, l.where)
+	}
+	if term != "" {
+		likes := make([]string, len(l.match))
+		for i, expr := range l.match {
+			likes[i] = expr + ` LIKE @p1 ESCAPE '\'`
+		}
+		conds = append(conds, "("+strings.Join(likes, " OR ")+")")
+		args = append(args, "%"+escapeLike(term)+"%")
+	}
+	query := "SELECT COUNT(*) FROM " + l.from
+	if len(conds) > 0 {
+		query += " WHERE " + strings.Join(conds, " AND ")
+	}
+	var count int
+	if err := conn.QueryRow(query, args...).Scan(&count); err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
 // ---- Schema model support ----
 
 func (e *SqlServerExtractor) SearchTables(conn *sql.DB, term string, limit int) ([]db.DbObject, error) {

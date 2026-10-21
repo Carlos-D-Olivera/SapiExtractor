@@ -8,13 +8,25 @@ import { oneDark } from '@codemirror/theme-one-dark'
 const DIALECTS = { SQL_SERVER: MSSQL, MYSQL: MySQL, POSTGRESQL: PostgreSQL }
 
 const theme = EditorView.theme({
-  '&': { height: '100%', fontSize: '12px', backgroundColor: '#18191A' },
+  '&': { height: '100%', backgroundColor: '#18191A' },
   '.cm-scroller': { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace', overflow: 'auto' },
   '.cm-gutters': { backgroundColor: '#18191A', borderRight: '1px solid rgba(36,51,80,0.8)', color: '#64748b' },
   '.cm-activeLine': { backgroundColor: 'rgba(255,255,255,0.03)' },
   '.cm-activeLineGutter': { backgroundColor: 'rgba(255,255,255,0.05)' },
   '&.cm-focused': { outline: 'none' },
-  '.cm-tooltip.cm-tooltip-autocomplete': { fontFamily: 'ui-monospace, Consolas, monospace', fontSize: '12px' },
+  '.cm-tooltip.cm-tooltip-autocomplete': { fontFamily: 'ui-monospace, Consolas, monospace' },
+  // High contrast selection background styling
+  '&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection': {
+    backgroundColor: '#245d9a !important',
+  },
+  '&:not(.cm-focused) > .cm-scroller > .cm-selectionLayer .cm-selectionBackground': {
+    backgroundColor: '#1b4068 !important',
+  },
+  '.cm-selectionMatch': {
+    backgroundColor: 'rgba(56, 189, 248, 0.28) !important',
+    outline: '1px solid rgba(56, 189, 248, 0.5)',
+    borderRadius: '2px',
+  },
   '.cm-autocomplete-code-highlight': {
     color: '#facc15 !important',
     backgroundColor: 'rgba(250, 204, 21, 0.18)',
@@ -26,6 +38,13 @@ const theme = EditorView.theme({
     textDecorationColor: '#facc15',
   },
 }, { dark: true })
+
+function makeFontSizeTheme(size) {
+  return EditorView.theme({
+    '&': { fontSize: `${size}px` },
+    '.cm-tooltip.cm-tooltip-autocomplete': { fontSize: `${size}px` },
+  })
+}
 
 function escapeRegex(s) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -74,10 +93,11 @@ function sqlLanguage(dbType, schema) {
  *  - onRun(selectedTextOrNull): fired on Ctrl/Cmd+Enter
  *  - viewRef: receives the EditorView
  */
-export default function SqlEditor({ value, onChange, dbType, schema, autocompletes, onRun, viewRef }) {
+export default function SqlEditor({ value, onChange, dbType, schema, autocompletes, onRun, viewRef, fontSize = 12 }) {
   const host = useRef(null)
   const lang = useRef(new Compartment())
   const highlightComp = useRef(new Compartment())
+  const fontSizeComp = useRef(new Compartment())
   const onChangeRef = useRef(onChange)
   const onRunRef = useRef(onRun)
   const autocompletesRef = useRef(autocompletes)
@@ -157,6 +177,7 @@ export default function SqlEditor({ value, onChange, dbType, schema, autocomplet
           basicSetup,
           lang.current.of(sqlLanguage(dbType, schema)),
           highlightComp.current.of(createHighlightPlugin(autocompletesRef.current)),
+          fontSizeComp.current.of(makeFontSizeTheme(fontSize || 12)),
           oneDark,
           theme,
           EditorView.updateListener.of(u => {
@@ -191,5 +212,16 @@ export default function SqlEditor({ value, onChange, dbType, schema, autocomplet
     }
   }, [autocompletes, viewRef])
 
-  return <div ref={host} className="h-full w-full" />
+  // Reconfigure font size and remeasure when fontSize changes
+  useEffect(() => {
+    const view = viewRef?.current
+    if (view) {
+      view.dispatch({
+        effects: fontSizeComp.current.reconfigure(makeFontSizeTheme(fontSize || 12)),
+      })
+      view.requestMeasure()
+    }
+  }, [fontSize, viewRef])
+
+  return <div ref={host} className="h-full w-full" style={{ fontSize: `${fontSize || 12}px` }} />
 }

@@ -14,6 +14,10 @@ export function Connect(arg1) {
   return window['go']['main']['App']['Connect'](arg1);
 }
 
+export function CountObjects(arg1, arg2) {
+  return window['go']['main']['App']['CountObjects'](arg1, arg2);
+}
+
 export function DeleteConnection(arg1) {
   return window['go']['main']['App']['DeleteConnection'](arg1);
 }

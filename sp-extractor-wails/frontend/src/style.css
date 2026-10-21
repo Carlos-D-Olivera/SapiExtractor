@@ -22,6 +22,11 @@
     overflow: hidden;
   }
 
+  ::selection {
+    background-color: #245d9a;
+    color: #ffffff;
+  }
+
   ::-webkit-scrollbar {
     width: 6px;
     height: 6px;
@@ -151,4 +156,37 @@
     @apply status-dot bg-amber-400;
     box-shadow: 0 0 6px rgba(251, 191, 36, 0.6);
   }
+
+  .animate-heartbeat {
+    animation: heartbeat 2.2s ease-in-out infinite;
+    transform-origin: center;
+    will-change: transform, filter;
+  }
+  .animate-heartbeat:hover {
+    animation-duration: 1.2s;
+  }
 }
+
+@keyframes heartbeat {
+  0%, 100% {
+    transform: scale(1);
+    filter: drop-shadow(0 0 10px rgba(0, 150, 199, 0.25));
+  }
+  14% {
+    transform: scale(1.07);
+    filter: drop-shadow(0 0 28px rgba(0, 180, 240, 0.75));
+  }
+  28% {
+    transform: scale(1);
+    filter: drop-shadow(0 0 12px rgba(0, 150, 199, 0.3));
+  }
+  42% {
+    transform: scale(1.04);
+    filter: drop-shadow(0 0 22px rgba(0, 180, 240, 0.55));
+  }
+  70% {
+    transform: scale(1);
+    filter: drop-shadow(0 0 10px rgba(0, 150, 199, 0.25));
+  }
+}
+

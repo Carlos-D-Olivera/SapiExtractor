@@ -16,6 +16,19 @@ const go = () => import('../../wailsjs/go/main/App')
 const DEFAULT_ROW_LIMIT = 100
 const EXPLICIT_LIMIT = /\b(top\s*\(?\s*\d+|limit\s+\d+|fetch\s+(first|next)\b)/i
 
+const DEFAULT_FONT_SIZE = 12
+const MIN_FONT_SIZE = 9
+const MAX_FONT_SIZE = 32
+
+function getStoredFontSize() {
+  try {
+    const v = localStorage.getItem('sp_extractor_query_font_size')
+    const n = Number(v)
+    if (Number.isFinite(n) && n >= MIN_FONT_SIZE && n <= MAX_FONT_SIZE) return n
+  } catch { /* ignore */ }
+  return DEFAULT_FONT_SIZE
+}
+
 const ROW_LIMITS = [
   { value: 100, label: '100 filas' },
   { value: 1000, label: '1.000 filas' },
@@ -41,12 +54,97 @@ export default function QueryWorkspace({ connLabel, dbType, incomingSql, active:
   const [tabs, setTabs] = useState(() => [newTab()])
   const [activeId, setActiveId] = useState(() => tabs[0].id)
   const [maxRows, setMaxRows] = useState(DEFAULT_ROW_LIMIT)
+  const [fontSize, setFontSize] = useState(() => getStoredFontSize())
+  const workspaceRef = useRef(null)
+  const deltaRef = useRef(0)
   const schemaLoaded = useRef(false)
   const [schema, setSchema] = useState({})
   const editorRef = useRef(null)
   const lastNonce = useRef(incomingSql?.nonce)
   const [autocompletes, setAutocompletes] = useState(() => getStoredAutocompletes())
   const [showAutocompletesModal, setShowAutocompletesModal] = useState(false)
+
+  const changeFontSize = useCallback((delta) => {
+    setFontSize(prev => {
+      const next = Math.min(MAX_FONT_SIZE, Math.max(MIN_FONT_SIZE, prev + delta))
+      try {
+        localStorage.setItem('sp_extractor_query_font_size', String(next))
+      } catch { /* ignore */ }
+      return next
+    })
+  }, [])
+
+  const resetFontSize = useCallback(() => {
+    setFontSize(DEFAULT_FONT_SIZE)
+    try {
+      localStorage.setItem('sp_extractor_query_font_size', String(DEFAULT_FONT_SIZE))
+    } catch { /* ignore */ }
+  }, [])
+
+  // Ctrl + MouseWheel zooms text across QueryWorkspace
+  useEffect(() => {
+    const el = workspaceRef.current
+    if (!el) return
+
+    let timeoutId = null
+
+    const handleWheel = (e) => {
+      if (!e.ctrlKey && !e.metaKey) return
+
+      // Prevent browser-level full-window zoom in WebView2
+      e.preventDefault()
+      e.stopPropagation()
+
+      // Reset accumulated delta if scrolling direction reverses
+      if ((deltaRef.current > 0 && e.deltaY < 0) || (deltaRef.current < 0 && e.deltaY > 0)) {
+        deltaRef.current = 0
+      }
+
+      deltaRef.current += e.deltaY
+
+      if (timeoutId) clearTimeout(timeoutId)
+      timeoutId = setTimeout(() => {
+        deltaRef.current = 0
+      }, 250)
+
+      const THRESHOLD = 60
+      if (Math.abs(deltaRef.current) >= THRESHOLD) {
+        const steps = Math.trunc(deltaRef.current / THRESHOLD)
+        deltaRef.current -= steps * THRESHOLD
+        // deltaY < 0 is wheel up (zoom in, +steps)
+        // deltaY > 0 is wheel down (zoom out, -steps)
+        changeFontSize(-steps)
+      }
+    }
+
+    el.addEventListener('wheel', handleWheel, { capture: true, passive: false })
+    return () => {
+      el.removeEventListener('wheel', handleWheel, { capture: true })
+      if (timeoutId) clearTimeout(timeoutId)
+    }
+  }, [changeFontSize])
+
+  // Keyboard zoom shortcuts (Ctrl +, Ctrl -, Ctrl 0) when QueryWorkspace is active
+  useEffect(() => {
+    if (!visible) return
+
+    const handleKeyDown = (e) => {
+      if (!e.ctrlKey && !e.metaKey) return
+      if (e.key === '=' || e.key === '+' || e.code === 'NumpadAdd') {
+        e.preventDefault()
+        changeFontSize(1)
+      } else if (e.key === '-' || e.code === 'NumpadSubtract') {
+        e.preventDefault()
+        changeFontSize(-1)
+      } else if (e.key === '0' || e.code === 'Numpad0') {
+        e.preventDefault()
+        resetFontSize()
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [visible, changeFontSize, resetFontSize])
 
   const handleSaveAutocompletes = (newList) => {
     setAutocompletes(newList)
@@ -138,7 +236,7 @@ export default function QueryWorkspace({ connLabel, dbType, incomingSql, active:
   }
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden">
+    <div ref={workspaceRef} className="flex-1 flex flex-col overflow-hidden">
       {/* Tab bar */}
       <div className="flex items-center gap-1 px-3 pt-2 border-b border-surface-600 flex-shrink-0 overflow-x-auto"
            style={{ background: 'rgba(11,16,26,0.8)' }}>
@@ -215,6 +313,37 @@ export default function QueryWorkspace({ connLabel, dbType, incomingSql, active:
                 {autocompletes.length}
               </span>
             </button>
+
+            {/* Zoom text control */}
+            <div
+              className="flex items-center gap-1 px-1.5 py-0.5 rounded-lg bg-surface-800/80 border border-surface-600/70 text-slate-400 select-none"
+              title="Zoom de texto: Ctrl + Rueda del ratón o Ctrl +/- (clic para reiniciar a 100%)"
+            >
+              <button
+                onClick={() => changeFontSize(-1)}
+                disabled={fontSize <= MIN_FONT_SIZE}
+                className="hover:text-white px-1 text-xs font-bold disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                title="Reducir texto (Ctrl - o Ctrl+Rueda abajo)"
+              >
+                −
+              </button>
+              <button
+                onClick={resetFontSize}
+                className="font-mono text-[11px] hover:text-brand-light px-1 transition-colors min-w-[36px] text-center"
+                title="Reiniciar tamaño a 100% (12px)"
+              >
+                {Math.round((fontSize / DEFAULT_FONT_SIZE) * 100)}%
+              </button>
+              <button
+                onClick={() => changeFontSize(1)}
+                disabled={fontSize >= MAX_FONT_SIZE}
+                className="hover:text-white px-1 text-xs font-bold disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                title="Aumentar texto (Ctrl + o Ctrl+Rueda arriba)"
+              >
+                +
+              </button>
+            </div>
+
             <div className="flex-1" />
             <label className="flex items-center gap-1.5 text-[10px] text-slate-500">
               Límite (si la consulta no trae TOP/LIMIT)
@@ -242,6 +371,7 @@ export default function QueryWorkspace({ connLabel, dbType, incomingSql, active:
                 dbType={dbType}
                 schema={schema}
                 autocompletes={autocompletes}
+                fontSize={fontSize}
                 viewRef={editorRef}
                 onRun={selection => runQuery(active, selection)}
               />
@@ -250,7 +380,7 @@ export default function QueryWorkspace({ connLabel, dbType, incomingSql, active:
 
           {/* Results */}
           <div className="flex-1 overflow-hidden px-3 pb-3 pt-1">
-            <ResultArea tab={active} />
+            <ResultArea tab={active} fontSize={fontSize} />
           </div>
         </>
       )}
@@ -267,12 +397,12 @@ export default function QueryWorkspace({ connLabel, dbType, incomingSql, active:
   )
 }
 
-function ResultArea({ tab }) {
+function ResultArea({ tab, fontSize }) {
   if (tab.error) {
     return (
       <div className="flex items-start gap-2 rounded-lg px-3 py-2 bg-red-500/10 border border-red-500/30 text-red-400 text-sm overflow-auto h-full">
         <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
-        <pre className="whitespace-pre-wrap font-mono text-xs" style={{ margin: 0 }}>{tab.error}</pre>
+        <pre className="whitespace-pre-wrap font-mono" style={{ margin: 0, fontSize: `${fontSize}px` }}>{tab.error}</pre>
       </div>
     )
   }
@@ -304,13 +434,13 @@ function ResultArea({ tab }) {
         <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{durationMs} ms</span>
       </div>
       {sets.map((set, i) => (
-        <ResultGrid key={i} set={set} index={i} total={sets.length} />
+        <ResultGrid key={i} set={set} index={i} total={sets.length} fontSize={fontSize} />
       ))}
     </div>
   )
 }
 
-function ResultGrid({ set, index, total }) {
+function ResultGrid({ set, index, total, fontSize }) {
   const { columns = [], rows = [] } = set
   return (
     <div className="flex flex-col min-h-0">
@@ -323,7 +453,7 @@ function ResultGrid({ set, index, total }) {
         </div>
       )}
       <div className="overflow-auto rounded-xl border border-surface-600" style={{ maxHeight: '45vh' }}>
-        <table className="text-xs border-collapse">
+        <table className="border-collapse" style={{ fontSize: `${Math.min(fontSize || 12, 20)}px` }}>
           <thead className="sticky top-0 z-10">
             <tr style={{ background: '#111B2C' }}>
               <th className="px-2 py-1.5 text-right text-slate-600 font-normal border-r border-surface-700/60 w-10">#</th>

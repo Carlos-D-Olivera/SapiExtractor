@@ -10,6 +10,8 @@ export function CancelQuery():Promise<void>;
 
 export function Connect(arg1:db.ConnInfo):Promise<void>;
 
+export function CountObjects(arg1:string,arg2:string):Promise<number>;
+
 export function DeleteConnection(arg1:config.SavedConnection):Promise<void>;
 
 export function Disconnect():Promise<void>;

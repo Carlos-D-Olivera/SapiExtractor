@@ -28,6 +28,7 @@ export default {
         'slide-up': 'slideUp 0.25s ease-out',
         'pulse-glow': 'pulseGlow 2s ease-in-out infinite',
         'spin-slow': 'spin 1.5s linear infinite',
+        'heartbeat': 'heartbeat 2.2s ease-in-out infinite',
       },
       keyframes: {
         fadeIn: {
@@ -41,6 +42,28 @@ export default {
         pulseGlow: {
           '0%, 100%': { boxShadow: '0 0 8px rgba(0, 150, 199, 0.3)' },
           '50%': { boxShadow: '0 0 20px rgba(0, 150, 199, 0.7)' },
+        },
+        heartbeat: {
+          '0%, 100%': {
+            transform: 'scale(1)',
+            filter: 'drop-shadow(0 0 10px rgba(0, 150, 199, 0.25))',
+          },
+          '14%': {
+            transform: 'scale(1.07)',
+            filter: 'drop-shadow(0 0 28px rgba(0, 180, 240, 0.75))',
+          },
+          '28%': {
+            transform: 'scale(1)',
+            filter: 'drop-shadow(0 0 12px rgba(0, 150, 199, 0.3))',
+          },
+          '42%': {
+            transform: 'scale(1.04)',
+            filter: 'drop-shadow(0 0 22px rgba(0, 180, 240, 0.55))',
+          },
+          '70%': {
+            transform: 'scale(1)',
+            filter: 'drop-shadow(0 0 10px rgba(0, 150, 199, 0.25))',
+          },
         },
       },
       backdropBlur: {
