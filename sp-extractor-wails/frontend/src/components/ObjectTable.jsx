@@ -16,6 +16,7 @@ export default function ObjectTable({
   hasMore,
   totalCount,
   filteredCount,
+  objType,
 }) {
   const [sortDir, setSortDir] = useState('asc')
 
@@ -23,11 +24,15 @@ export default function ObjectTable({
   const filtered = useMemo(() => {
     return [...objects]
       .sort((a, b) => {
-        const fa = (a.schema ? a.schema + '.' : '') + a.name
-        const fb = (b.schema ? b.schema + '.' : '') + b.name
+        const fa = objType === 'COLUMN'
+          ? (a.parentName ? a.parentName + '.' : '') + a.name
+          : (a.schema ? a.schema + '.' : '') + a.name
+        const fb = objType === 'COLUMN'
+          ? (b.parentName ? b.parentName + '.' : '') + b.name
+          : (b.schema ? b.schema + '.' : '') + b.name
         return sortDir === 'asc' ? fa.localeCompare(fb) : fb.localeCompare(fa)
       })
-  }, [objects, sortDir])
+  }, [objects, sortDir, objType])
 
   const allVisibleKeys = filtered.map(objKey)
   const allChecked = allVisibleKeys.length > 0 && allVisibleKeys.every(k => selectedKeys.has(k))
@@ -60,7 +65,7 @@ export default function ObjectTable({
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500" />
           <input
             className="input-field pl-8 py-1.5"
-            placeholder="Buscar en toda la base de datos…"
+            placeholder={objType === 'COLUMN' ? "Buscar columna, ej. ControlFactura. o Numfactura…" : "Buscar en toda la base de datos…"}
             value={search}
             onChange={e => onSearchChange(e.target.value)}
           />
@@ -108,7 +113,9 @@ export default function ObjectTable({
                   {sortDir === 'asc' ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
                 </span>
               </th>
-              <th className="px-3 py-2.5 text-left text-xs font-medium text-slate-400">Schema</th>
+              <th className="px-3 py-2.5 text-left text-xs font-medium text-slate-400">
+                {objType === 'COLUMN' ? 'Tabla' : 'Schema'}
+              </th>
               <th className="w-10 px-3 py-2.5" />
             </tr>
           </thead>
@@ -145,7 +152,12 @@ export default function ObjectTable({
                   >
                     {obj.name}
                   </td>
-                  <td className="px-3 py-2 text-slate-400 text-xs">{obj.schema || '—'}</td>
+                  <td
+                    className="px-3 py-2 text-slate-400 text-xs"
+                    title={objType === 'COLUMN' && obj.schema ? `${obj.schema}.${obj.parentName || ''}` : undefined}
+                  >
+                    {objType === 'COLUMN' ? (obj.parentName || '—') : (obj.schema || '—')}
+                  </td>
                   <td className="w-10 px-3 py-2 whitespace-nowrap">
                     {onScripts && (
                       <button
@@ -191,5 +203,5 @@ export default function ObjectTable({
 }
 
 function objKey(obj) {
-  return `${obj.schema}|${obj.name}|${obj.type}`
+  return `${obj.schema}|${obj.parentName || ''}|${obj.name}|${obj.type}`
 }
