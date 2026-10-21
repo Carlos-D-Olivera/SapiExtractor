@@ -2,18 +2,37 @@ import { useState, useMemo } from 'react'
 import { Loader2, Search, CheckSquare, Square, Minus, ChevronUp, ChevronDown, Eye, Network, FileCode } from 'lucide-react'
 import clsx from 'clsx'
 
-export default function ObjectTable({ objects, selectedKeys, onSelectionChange, onPreview, previewKey, onRelations, onScripts, search, onSearchChange, searching, hasMore }) {
+export default function ObjectTable({
+  objects,
+  selectedKeys,
+  onSelectionChange,
+  onPreview,
+  previewKey,
+  onRelations,
+  onScripts,
+  search,
+  onSearchChange,
+  searching,
+  hasMore,
+  totalCount,
+  filteredCount,
+  objType,
+}) {
   const [sortDir, setSortDir] = useState('asc')
 
   // The list is already filtered (and capped) by the database; here we only sort.
   const filtered = useMemo(() => {
     return [...objects]
       .sort((a, b) => {
-        const fa = (a.schema ? a.schema + '.' : '') + a.name
-        const fb = (b.schema ? b.schema + '.' : '') + b.name
+        const fa = objType === 'COLUMN'
+          ? (a.parentName ? a.parentName + '.' : '') + a.name
+          : (a.schema ? a.schema + '.' : '') + a.name
+        const fb = objType === 'COLUMN'
+          ? (b.parentName ? b.parentName + '.' : '') + b.name
+          : (b.schema ? b.schema + '.' : '') + b.name
         return sortDir === 'asc' ? fa.localeCompare(fb) : fb.localeCompare(fa)
       })
-  }, [objects, sortDir])
+  }, [objects, sortDir, objType])
 
   const allVisibleKeys = filtered.map(objKey)
   const allChecked = allVisibleKeys.length > 0 && allVisibleKeys.every(k => selectedKeys.has(k))
@@ -46,14 +65,26 @@ export default function ObjectTable({ objects, selectedKeys, onSelectionChange, 
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500" />
           <input
             className="input-field pl-8 py-1.5"
-            placeholder="Buscar en toda la base de datos…"
+            placeholder={objType === 'COLUMN' ? "Buscar columna, ej. ControlFactura. o Numfactura…" : "Buscar en toda la base de datos…"}
             value={search}
             onChange={e => onSearchChange(e.target.value)}
           />
           {searching && <Loader2 className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 animate-spin text-brand-light" />}
         </div>
         <span className="text-xs text-slate-500 whitespace-nowrap">
-          {selectedKeys.size} seleccionados · {objects.length}{hasMore ? '+' : ''}
+          {selectedKeys.size} seleccionados · {
+            search
+              ? (filteredCount != null
+                  ? (objects.length < filteredCount
+                      ? `${objects.length} de ${filteredCount.toLocaleString()} encontrados`
+                      : `${objects.length} encontrados`)
+                  : `${objects.length}`)
+              : (totalCount != null
+                  ? (objects.length < totalCount
+                      ? `${objects.length} de ${totalCount.toLocaleString()}`
+                      : `${totalCount.toLocaleString()} objetos`)
+                  : `${objects.length}${hasMore ? '+' : ''}`)
+          }
         </span>
       </div>
 
@@ -82,7 +113,9 @@ export default function ObjectTable({ objects, selectedKeys, onSelectionChange, 
                   {sortDir === 'asc' ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
                 </span>
               </th>
-              <th className="px-3 py-2.5 text-left text-xs font-medium text-slate-400">Schema</th>
+              <th className="px-3 py-2.5 text-left text-xs font-medium text-slate-400">
+                {objType === 'COLUMN' ? 'Tabla' : 'Schema'}
+              </th>
               <th className="w-10 px-3 py-2.5" />
             </tr>
           </thead>
@@ -119,7 +152,12 @@ export default function ObjectTable({ objects, selectedKeys, onSelectionChange, 
                   >
                     {obj.name}
                   </td>
-                  <td className="px-3 py-2 text-slate-400 text-xs">{obj.schema || '—'}</td>
+                  <td
+                    className="px-3 py-2 text-slate-400 text-xs"
+                    title={objType === 'COLUMN' && obj.schema ? `${obj.schema}.${obj.parentName || ''}` : undefined}
+                  >
+                    {objType === 'COLUMN' ? (obj.parentName || '—') : (obj.schema || '—')}
+                  </td>
                   <td className="w-10 px-3 py-2 whitespace-nowrap">
                     {onScripts && (
                       <button
@@ -155,7 +193,9 @@ export default function ObjectTable({ objects, selectedKeys, onSelectionChange, 
       </div>
       {hasMore && (
         <p className="text-[11px] text-amber-400 mt-2">
-          Mostrando los primeros {objects.length}. Usa el buscador para encontrar el resto.
+          {search
+            ? `Mostrando los primeros ${objects.length} de ${filteredCount != null ? filteredCount.toLocaleString() : (objects.length + '+')} encontrados. Refina la búsqueda si no ves el que buscas.`
+            : `Mostrando los primeros ${objects.length} de ${totalCount != null ? totalCount.toLocaleString() : (objects.length + '+')}. Usa el buscador para encontrar el resto.`}
         </p>
       )}
     </div>
@@ -163,5 +203,5 @@ export default function ObjectTable({ objects, selectedKeys, onSelectionChange, 
 }
 
 function objKey(obj) {
-  return `${obj.schema}|${obj.name}|${obj.type}`
+  return `${obj.schema}|${obj.parentName || ''}|${obj.name}|${obj.type}`
 }

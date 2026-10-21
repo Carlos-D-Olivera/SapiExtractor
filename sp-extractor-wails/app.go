@@ -99,6 +99,16 @@ func (a *App) ListObjects(objType, term string, limit int) ([]db.DbObject, error
 	return a.extractor.ExtractObjects(a.conn, t, strings.TrimSpace(term), limit)
 }
 
+// CountObjects returns the total number of objects of the given type,
+// optionally filtered by term (case-insensitive substring in SQL).
+func (a *App) CountObjects(objType, term string) (int, error) {
+	if a.conn == nil {
+		return 0, fmt.Errorf("not connected")
+	}
+	t := db.DbObjectType(objType)
+	return a.extractor.CountObjects(a.conn, t, strings.TrimSpace(term))
+}
+
 // GetDefinition fills and returns the definition for a single DbObject.
 // The DROP-if-exists header is embedded directly in the returned definition for
 // every object type that has one (SP, View, Function, Table, Trigger).

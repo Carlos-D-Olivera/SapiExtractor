@@ -11,6 +11,8 @@ type Extractor interface {
 	// ExtractObjects lists objects of a type. term (optional) filters by schema/name
 	// substring, case-insensitive; limit > 0 caps the rows. Both are applied in SQL.
 	ExtractObjects(conn *sql.DB, objType db.DbObjectType, term string, limit int) ([]db.DbObject, error)
+	// CountObjects returns the total number of objects of a type, optionally filtered by term.
+	CountObjects(conn *sql.DB, objType db.DbObjectType, term string) (int, error)
 	FillDefinition(conn *sql.DB, obj *db.DbObject) error
 	// SearchTables returns tables whose name matches term (substring, case-insensitive).
 	SearchTables(conn *sql.DB, term string, limit int) ([]db.DbObject, error)

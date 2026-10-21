@@ -5,13 +5,13 @@ import clsx from 'clsx'
 export const DEFAULT_AUTOCOMPLETES = [
   { id: 'sel', code: 'sel', query: 'SELECT * FROM ', seleccionar: false },
   { id: 'seltop', code: 'seltop', query: 'SELECT TOP 100 * FROM ', seleccionar: false },
-  { id: 'ver', code: 'ver', query: 'SELECT * FROM admControlVersiones', seleccionar: false },
+  { id: 'ver', code: 'ver', query: 'SELECT * FROM admControlVersiones', seleccionar: true },
   { id: 'dbs', code: 'dbs', query: "SELECT * FROM admConfiguracion WHERE Codigo LIKE '%DBS%'", seleccionar: false },
-  { id: 'chk', code: 'chk', query: "SELECT * FROM admConfiguracion WHERE Codigo = ''", seleccionar: false },
-  { id: 'upd', code: 'upd', query: "UPDATE Tabla SET Columna = valor WHERE  condicion", seleccionar: false },
-  { id: 'users', code: 'users', query: "DECLARE @BD SYSNAME = DB_NAME(); EXEC master.dbo.usp_UsuariosPasswordModulo @BaseDatos = @BD", seleccionar: false },
-  { id: 'userf', code: 'userf', query: "DECLARE @BD SYSNAME = DB_NAME(); EXEC master.dbo.usp_UsuariosPasswordModulo @BaseDatos = @BD, @NombreModulo = 'Facturacion';", seleccionar: false },
-  { id: 'userhc', code: 'userhc', query: "DECLARE @BD SYSNAME = DB_NAME(); EXEC master.dbo.usp_UsuariosPasswordModulo @BaseDatos = @BD, @NombreModulo = 'Historia Clinica';", seleccionar: false }
+  { id: 'chk', code: 'chk', query: "SELECT * FROM admConfiguracion WHERE Codigo = '#'", seleccionar: false },
+  { id: 'upd', code: 'upd', query: "UPDATE # SET Columna = valor WHERE  condicion", seleccionar: false },
+  { id: 'users', code: 'users', query: "DECLARE @BD SYSNAME = DB_NAME(); EXEC master.dbo.usp_UsuariosPasswordModulo @BaseDatos = @BD", seleccionar: true },
+  { id: 'userf', code: 'userf', query: "DECLARE @BD SYSNAME = DB_NAME(); EXEC master.dbo.usp_UsuariosPasswordModulo @BaseDatos = @BD, @NombreModulo = 'Facturacion';", seleccionar: true },
+  { id: 'userhc', code: 'userhc', query: "DECLARE @BD SYSNAME = DB_NAME(); EXEC master.dbo.usp_UsuariosPasswordModulo @BaseDatos = @BD, @NombreModulo = 'Historia Clinica';", seleccionar: true }
 ]
 
 const STORAGE_KEY = 'spextractor_sql_autocompletes'

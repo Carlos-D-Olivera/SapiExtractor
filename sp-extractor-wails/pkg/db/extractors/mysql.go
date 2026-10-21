@@ -46,6 +46,27 @@ func (e *MySQLExtractor) ExtractObjects(conn *sql.DB, objType db.DbObjectType, t
 	return list, rows.Err()
 }
 
+// CountObjects returns the total count of stored procedures, optionally filtered by term.
+func (e *MySQLExtractor) CountObjects(conn *sql.DB, objType db.DbObjectType, term string) (int, error) {
+	if objType != db.StoredProcedure {
+		return 0, nil
+	}
+	query := `SELECT COUNT(*)
+	          FROM information_schema.ROUTINES
+	          WHERE ROUTINE_TYPE = 'PROCEDURE' AND ROUTINE_SCHEMA = DATABASE()`
+	var args []any
+	if term != "" {
+		query += ` AND (ROUTINE_NAME LIKE ? ESCAPE '\\' OR ROUTINE_SCHEMA LIKE ? ESCAPE '\\')`
+		pat := "%" + escapeLike(term) + "%"
+		args = append(args, pat, pat)
+	}
+	var count int
+	if err := conn.QueryRow(query, args...).Scan(&count); err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
 // ---- Schema model support ----
 
 func (e *MySQLExtractor) SearchTables(conn *sql.DB, term string, limit int) ([]db.DbObject, error) {
