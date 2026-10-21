@@ -55,6 +55,7 @@ export default function App() {
   const [objects, setObjects] = useState([])
   const [loadingObjects, setLoadingObjects] = useState(false)
   const [searching, setSearching] = useState(false)
+  const [selectingAll, setSelectingAll] = useState(false)
   const [search, setSearch] = useState('')
   const [hasMore, setHasMore] = useState(false)           // list was cut at its limit
   const [totalCount, setTotalCount] = useState(null)       // total count of objects for current objType
@@ -134,6 +135,7 @@ export default function App() {
     setTotalCount(null)
     setFilteredCount(null)
     setSelected(new Set())
+    setSelectingAll(false)
     setObjError('')
     setExportProgress(null)
     setPreviewObj(null)
@@ -177,6 +179,7 @@ export default function App() {
     setTotalCount(null)
     setFilteredCount(null)
     setSelected(new Set())
+    setSelectingAll(false)
     setExportProgress(null)
     setPreviewObj(null)
     setPreviewDef('')
@@ -281,6 +284,41 @@ export default function App() {
     setFilteredCount(null)
     loadObjects(objType, connInfo, true)
   }
+
+  const handleSelectAllServer = useCallback(async () => {
+    if (!connInfo) return
+    setSelectingAll(true)
+    setObjError('')
+    try {
+      const api = await go()
+      const term = search.trim()
+      // limit 0 fetches all matching records (without SQL TOP or LIMIT)
+      const list = await api.ListObjects(objType, term, 0)
+      const safeList = list || []
+
+      // Remember in knownRef so export and definition retrieval work
+      safeList.forEach(o => knownRef.current.set(objKey(o), o))
+
+      if (!term) {
+        cacheRef.current.set(objType, safeList)
+        totalCountCacheRef.current.set(objType, safeList.length)
+        setTotalCount(safeList.length)
+      } else {
+        setFilteredCount(safeList.length)
+      }
+
+      setObjects(safeList)
+      setHasMore(false)
+
+      // Select all keys
+      const allKeys = new Set(safeList.map(objKey))
+      setSelected(allKeys)
+    } catch (e) {
+      setObjError(e.toString())
+    } finally {
+      setSelectingAll(false)
+    }
+  }, [connInfo, objType, search])
 
   const handleTypeChange = (type) => {
     clearTimeout(searchTimer.current)
@@ -667,6 +705,8 @@ export default function App() {
                         onScripts={objType === 'TABLE' ? setScriptsObj : undefined}
                         previewKey={previewObj ? objKey(previewObj) : ''}
                         objType={objType}
+                        onSelectAllServer={handleSelectAllServer}
+                        selectingAll={selectingAll}
                       />
                     )}
                   </div>
