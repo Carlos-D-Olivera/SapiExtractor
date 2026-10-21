@@ -1,13 +1,13 @@
 {
   "$schema": "https://wails.io/schemas/config.v2.json",
-  "name": "SpExtractor",
-  "outputfilename": "SpExtractor",
+  "name": "SapiExtractor",
+  "outputfilename": "SapiExtractor",
   "frontend:install": "npm install",
   "frontend:build": "npm run build",
   "frontend:dev:watcher": "npm run dev",
   "frontend:dev:serverUrl": "auto",
   "info": {
-    "productVersion": "1.0.0"
+    "productVersion": "2.0.1"
   },
   "author": {
     "name": "Carlos Olivera",
