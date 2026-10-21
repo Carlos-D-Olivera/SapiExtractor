@@ -90,12 +90,20 @@ func (e *SqlServerExtractor) ExtractObjects(conn *sql.DB, objType db.DbObjectTyp
 		conds = append(conds, l.where)
 	}
 	if term != "" {
-		likes := make([]string, len(l.match))
-		for i, expr := range l.match {
-			likes[i] = expr + ` LIKE @p1 ESCAPE '\'`
+		if objType == db.Column {
+			cConds, cArgs := buildColumnFilter(term, len(args)+1)
+			if len(cConds) > 0 {
+				conds = append(conds, cConds...)
+				args = append(args, cArgs...)
+			}
+		} else {
+			likes := make([]string, len(l.match))
+			for i, expr := range l.match {
+				likes[i] = expr + ` LIKE @p1 ESCAPE '\'`
+			}
+			conds = append(conds, "("+strings.Join(likes, " OR ")+")")
+			args = append(args, "%"+escapeLike(term)+"%")
 		}
-		conds = append(conds, "("+strings.Join(likes, " OR ")+")")
-		args = append(args, "%"+escapeLike(term)+"%")
 	}
 	query := "SELECT " + top + l.cols + " FROM " + l.from
 	if len(conds) > 0 {
@@ -136,12 +144,20 @@ func (e *SqlServerExtractor) CountObjects(conn *sql.DB, objType db.DbObjectType,
 		conds = append(conds, l.where)
 	}
 	if term != "" {
-		likes := make([]string, len(l.match))
-		for i, expr := range l.match {
-			likes[i] = expr + ` LIKE @p1 ESCAPE '\'`
+		if objType == db.Column {
+			cConds, cArgs := buildColumnFilter(term, len(args)+1)
+			if len(cConds) > 0 {
+				conds = append(conds, cConds...)
+				args = append(args, cArgs...)
+			}
+		} else {
+			likes := make([]string, len(l.match))
+			for i, expr := range l.match {
+				likes[i] = expr + ` LIKE @p1 ESCAPE '\'`
+			}
+			conds = append(conds, "("+strings.Join(likes, " OR ")+")")
+			args = append(args, "%"+escapeLike(term)+"%")
 		}
-		conds = append(conds, "("+strings.Join(likes, " OR ")+")")
-		args = append(args, "%"+escapeLike(term)+"%")
 	}
 	query := "SELECT COUNT(*) FROM " + l.from
 	if len(conds) > 0 {
@@ -152,6 +168,68 @@ func (e *SqlServerExtractor) CountObjects(conn *sql.DB, objType db.DbObjectType,
 		return 0, err
 	}
 	return count, nil
+}
+
+// buildColumnFilter parses terms like 'ControlFactura.', 'ControlFactura.Numfactura', or 'Numfactura'
+// and builds WHERE conditions and argument values specifically for column searches.
+func buildColumnFilter(term string, startParam int) ([]string, []any) {
+	term = strings.TrimSpace(term)
+	if term == "" {
+		return nil, nil
+	}
+
+	cleanPart := func(s string) string {
+		return strings.Trim(strings.TrimSpace(s), "[]\"'`")
+	}
+
+	var conds []string
+	var args []any
+
+	if strings.Contains(term, ".") {
+		parts := strings.Split(term, ".")
+		if len(parts) == 2 {
+			tablePart := cleanPart(parts[0])
+			colPart := cleanPart(parts[1])
+			if tablePart != "" {
+				param := fmt.Sprintf("@p%d", startParam+len(args))
+				conds = append(conds, fmt.Sprintf("t.name LIKE %s ESCAPE '\\'", param))
+				args = append(args, "%"+escapeLike(tablePart)+"%")
+			}
+			if colPart != "" {
+				param := fmt.Sprintf("@p%d", startParam+len(args))
+				conds = append(conds, fmt.Sprintf("c.name LIKE %s ESCAPE '\\'", param))
+				args = append(args, "%"+escapeLike(colPart)+"%")
+			}
+		} else if len(parts) >= 3 {
+			schemaPart := cleanPart(parts[0])
+			tablePart := cleanPart(parts[1])
+			colPart := cleanPart(strings.Join(parts[2:], "."))
+			if schemaPart != "" {
+				param := fmt.Sprintf("@p%d", startParam+len(args))
+				conds = append(conds, fmt.Sprintf("SCHEMA_NAME(t.schema_id) LIKE %s ESCAPE '\\'", param))
+				args = append(args, "%"+escapeLike(schemaPart)+"%")
+			}
+			if tablePart != "" {
+				param := fmt.Sprintf("@p%d", startParam+len(args))
+				conds = append(conds, fmt.Sprintf("t.name LIKE %s ESCAPE '\\'", param))
+				args = append(args, "%"+escapeLike(tablePart)+"%")
+			}
+			if colPart != "" {
+				param := fmt.Sprintf("@p%d", startParam+len(args))
+				conds = append(conds, fmt.Sprintf("c.name LIKE %s ESCAPE '\\'", param))
+				args = append(args, "%"+escapeLike(colPart)+"%")
+			}
+		}
+	} else {
+		cleaned := cleanPart(term)
+		if cleaned != "" {
+			param := fmt.Sprintf("@p%d", startParam+len(args))
+			conds = append(conds, fmt.Sprintf("c.name LIKE %s ESCAPE '\\'", param))
+			args = append(args, "%"+escapeLike(cleaned)+"%")
+		}
+	}
+
+	return conds, args
 }
 
 // ---- Schema model support ----

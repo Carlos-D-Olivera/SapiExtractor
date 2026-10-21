@@ -665,6 +665,7 @@ export default function App() {
                         onRelations={objType === 'TABLE' ? setRelationsObj : undefined}
                         onScripts={objType === 'TABLE' ? setScriptsObj : undefined}
                         previewKey={previewObj ? objKey(previewObj) : ''}
+                        objType={objType}
                       />
                     )}
                   </div>
@@ -700,5 +701,5 @@ export default function App() {
 }
 
 function objKey(obj) {
-  return `${obj.schema}|${obj.name}|${obj.type}`
+  return `${obj.schema}|${obj.parentName || ''}|${obj.name}|${obj.type}`
 }
