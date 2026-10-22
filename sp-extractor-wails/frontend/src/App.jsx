@@ -465,10 +465,10 @@ export default function App() {
         {/* Logo / Title */}
         <div className="flex items-center gap-2.5">
           <div className="w-7 h-7 rounded-lg flex items-center justify-center bg-surface-700/40 border border-surface-600/50">
-            <img src={appIcon} alt="SpExtractor" className="w-5 h-5 object-contain" />
+            <img src={appIcon} alt="SapiExtractor" className="w-5 h-5 object-contain" />
           </div>
           <div>
-            <h1 className="text-sm font-bold text-white tracking-tight">SpExtractor</h1>
+            <h1 className="text-sm font-bold text-white tracking-tight">SapiExtractor</h1>
             <p className="text-[10px] text-slate-500 -mt-0.5">Database Object Extractor</p>
           </div>
         </div>
@@ -582,7 +582,7 @@ export default function App() {
                     />
                     <img
                       src={appIcon}
-                      alt="SpExtractor"
+                      alt="SapiExtractor"
                       className="relative w-48 h-48 object-contain animate-heartbeat select-none cursor-pointer"
                     />
                   </div>
