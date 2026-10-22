@@ -61,7 +61,7 @@ export default function App() {
   const [filteredCount, setFilteredCount] = useState(null) // count matching current search term (or null if not searching)
   const [objError, setObjError] = useState('')
   const [selected, setSelected] = useState(new Set())   // Set of objKey strings
-  const [outDir, setOutDir] = useState('')
+  const [outDir, setOutDir] = useState(() => (typeof window !== 'undefined' && (!window['go'] || !window['go']['main']) ? 'Descargas (.zip)' : ''))
   const [exportProgress, setExportProgress] = useState(null)
   const [exporting, setExporting] = useState(false)
   const cacheRef = useRef(new Map())         // objType -> first page of DbObject[] (unfiltered)

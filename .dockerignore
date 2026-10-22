@@ -1,0 +1,6 @@
+.git
+.idea
+sp-extractor-java
+sp-extractor-wails/build/bin
+sp-extractor-wails/frontend/node_modules
+sp-extractor-wails/frontend/dist
