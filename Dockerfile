@@ -16,16 +16,21 @@ RUN npm run build
 FROM golang:1.24-alpine AS backend-builder
 WORKDIR /build/backend
 
-COPY sp-extractor-wails/go.mod sp-extractor-wails/go.sum ./
+ENV CGO_ENABLED=0
+ENV GOOS=linux
+
+COPY sp-extractor-wails/go.mod ./
 RUN go mod download
 
-COPY sp-extractor-wails/ ./
+# Copiar únicamente los paquetes requeridos por el servidor web
+COPY sp-extractor-wails/pkg/ ./pkg/
+COPY sp-extractor-wails/cmd/ ./cmd/
 
 # Reemplazar el dist embebido con el generado por Vite
 COPY --from=frontend-builder /build/frontend/dist ./cmd/web/dist
 
 # Compilar binario 100% estático
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /spextractor-web ./cmd/web
+RUN go build -ldflags="-s -w" -o /spextractor-web ./cmd/web
 
 # ------------------------------------------------------------------------------
 # Stage 3: Imagen final ligera (Alpine Linux)
