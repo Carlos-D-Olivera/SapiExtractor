@@ -376,30 +376,68 @@ func (a *App) ExecuteQuery(wsID, sqlText string, maxRows int) (QueryResponse, er
 	start := time.Now()
 	resp := QueryResponse{Sets: []ResultSet{}}
 
-	if isPlainDML(sqlText) {
-		res, err := s.conn.ExecContext(ctx, sqlText)
+	// GO is a client-side batch separator (SSMS), not T-SQL: run each batch on its own.
+	batches := splitBatches(sqlText)
+	if len(batches) == 0 {
+		return resp, fmt.Errorf("empty query")
+	}
+	var affected int64
+	var dmlBatches int
+	for i, batch := range batches {
+		n, isDML, err := runBatch(ctx, s.conn, batch, maxRows, &resp)
 		if err != nil {
+			if len(batches) > 1 {
+				return resp, fmt.Errorf("lote %d de %d: %w", i+1, len(batches), err)
+			}
 			return resp, err
 		}
-		resp.DurationMs = time.Since(start).Milliseconds()
-		if n, err := res.RowsAffected(); err == nil && n >= 0 {
-			resp.Message = fmt.Sprintf("%d fila(s) afectada(s).", n)
-		} else {
-			resp.Message = "Comando ejecutado correctamente."
+		if isDML {
+			dmlBatches++
+			if n > 0 {
+				affected += n
+			}
 		}
-		return resp, nil
 	}
 
-	rows, err := s.conn.QueryContext(ctx, sqlText)
+	resp.DurationMs = time.Since(start).Milliseconds()
+	switch {
+	case len(resp.Sets) > 0:
+		resp.Message = fmt.Sprintf("%d conjunto(s) de resultados, %d fila(s).", len(resp.Sets), resp.RowCount)
+	case dmlBatches > 0 && dmlBatches == len(batches):
+		resp.Message = fmt.Sprintf("%d fila(s) afectada(s).", affected)
+	case len(batches) > 1:
+		resp.Message = fmt.Sprintf("%d lote(s) ejecutado(s) correctamente.", len(batches))
+	default:
+		resp.Message = "Comando ejecutado correctamente."
+	}
+	return resp, nil
+}
+
+// runBatch executes one batch and appends any result sets to resp. For a plain
+// INSERT/UPDATE/DELETE/MERGE it uses Exec and returns the rows affected.
+func runBatch(ctx context.Context, conn *sql.DB, sqlText string, maxRows int, resp *QueryResponse) (affected int64, isDML bool, err error) {
+	if isPlainDML(sqlText) {
+		res, err := conn.ExecContext(ctx, sqlText)
+		if err != nil {
+			return 0, true, err
+		}
+		n, nerr := res.RowsAffected()
+		if nerr != nil {
+			n = -1
+		}
+		return n, true, nil
+	}
+
+	rows, err := conn.QueryContext(ctx, sqlText)
 	if err != nil {
-		return resp, err
+		return 0, false, err
 	}
 	defer rows.Close()
 
 	for {
 		cols, err := rows.Columns()
 		if err != nil {
-			return resp, err
+			return 0, false, err
 		}
 		if len(cols) > 0 {
 			set := ResultSet{Columns: cols, Types: columnTypeNames(rows), Rows: [][]*string{}}
@@ -414,7 +452,7 @@ func (a *App) ExecuteQuery(wsID, sqlText string, maxRows int) (QueryResponse, er
 					ptrs[i] = &vals[i]
 				}
 				if err := rows.Scan(ptrs...); err != nil {
-					return resp, err
+					return 0, false, err
 				}
 				row := make([]*string, len(cols))
 				for i, v := range vals {
@@ -423,7 +461,7 @@ func (a *App) ExecuteQuery(wsID, sqlText string, maxRows int) (QueryResponse, er
 				set.Rows = append(set.Rows, row)
 			}
 			if err := rows.Err(); err != nil {
-				return resp, err
+				return 0, false, err
 			}
 			resp.Sets = append(resp.Sets, set)
 			resp.RowCount += len(set.Rows)
@@ -432,14 +470,7 @@ func (a *App) ExecuteQuery(wsID, sqlText string, maxRows int) (QueryResponse, er
 			break
 		}
 	}
-
-	resp.DurationMs = time.Since(start).Milliseconds()
-	if len(resp.Sets) == 0 {
-		resp.Message = "Comando ejecutado correctamente."
-	} else {
-		resp.Message = fmt.Sprintf("%d conjunto(s) de resultados, %d fila(s).", len(resp.Sets), resp.RowCount)
-	}
-	return resp, nil
+	return 0, false, nil
 }
 
 var (

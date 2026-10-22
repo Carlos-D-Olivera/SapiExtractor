@@ -384,8 +384,8 @@ export default function WorkspaceView({
     }
   }
 
-  const openScriptInQuery = (sql) => {
-    setIncomingSql({ text: sql, nonce: Date.now() })
+  const openScriptInQuery = (sql, title) => {
+    setIncomingSql({ text: sql, title, nonce: Date.now() })
     setView('query')
   }
 
@@ -567,6 +567,9 @@ export default function WorkspaceView({
                       error={previewError}
                       onRefresh={() => { defCacheRef.current.delete(objKey(previewObj)); handlePreview(previewObj) }}
                       onBack={closePreview}
+                      onEdit={['STORED_PROCEDURE', 'FUNCTION', 'VIEW', 'TRIGGER'].includes(previewObj.type)
+                        ? () => openScriptInQuery(previewDef, previewObj.name)
+                        : undefined}
                     />
                   ) : (
                     <ObjectTable

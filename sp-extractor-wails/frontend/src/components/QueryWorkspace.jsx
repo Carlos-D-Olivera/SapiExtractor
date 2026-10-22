@@ -172,6 +172,7 @@ export default function QueryWorkspace({ workspaceId = '1', connLabel, dbType, i
     if (!incomingSql || incomingSql.nonce === lastNonce.current) return
     lastNonce.current = incomingSql.nonce
     const t = { ...newTab(), sql: incomingSql.text }
+    if (incomingSql.title) t.title = incomingSql.title
     setTabs(prev => [...prev, t])
     setActiveId(t.id)
   }, [incomingSql])
