@@ -142,7 +142,7 @@ function linkPath(l) {
   return `M ${x1} ${y1} C ${x1 + mid} ${y1}, ${x2 - mid} ${y2}, ${x2} ${y2}`
 }
 
-export default function RelationsPanel({ obj, onBack, onOpenTable }) {
+export default function RelationsPanel({ workspaceId = '1', obj, onBack, onOpenTable }) {
   const [depth, setDepth] = useState(1)
   const [mode, setMode] = useState('model') // 'model' | 'list'
   const [model, setModel] = useState(null)
@@ -160,7 +160,7 @@ export default function RelationsPanel({ obj, onBack, onOpenTable }) {
     ;(async () => {
       try {
         const api = await import('../../wailsjs/go/main/App')
-        const m = await api.GetSchemaModel(obj.schema, obj.name, depth)
+        const m = await api.GetSchemaModel(workspaceId, obj.schema, obj.name, depth)
         if (!cancelled) setModel(m)
       } catch (e) {
         if (!cancelled) {

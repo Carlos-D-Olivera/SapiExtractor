@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { ArrowLeft, RefreshCw, Copy, Save, ExternalLink, Loader2, AlertCircle, Check } from 'lucide-react'
 import clsx from 'clsx'
 
-export default function PreviewPanel({ obj, typeLabel, definition, loading, error, onRefresh, onBack }) {
+export default function PreviewPanel({ workspaceId = '1', obj, typeLabel, definition, loading, error, onRefresh, onBack }) {
   const [copied, setCopied] = useState(false)
   const [actionError, setActionError] = useState('')
   const [busy, setBusy] = useState('') // 'copy' | 'save' | 'open'
@@ -24,7 +24,7 @@ export default function PreviewPanel({ obj, typeLabel, definition, loading, erro
     setBusy('copy')
     try {
       const api = await go()
-      const text = await api.GetObjectText(objWithDef)
+      const text = await api.GetObjectText(workspaceId, objWithDef)
       try {
         await navigator.clipboard.writeText(text)
       } catch {
@@ -51,7 +51,7 @@ export default function PreviewPanel({ obj, typeLabel, definition, loading, erro
     setBusy('save')
     try {
       const api = await go()
-      const path = await api.SaveObject(objWithDef)
+      const path = await api.SaveObject(workspaceId, objWithDef)
       if (path) {
         setSaveFeedback(path)
         setTimeout(() => setSaveFeedback(''), 2500)
@@ -69,7 +69,7 @@ export default function PreviewPanel({ obj, typeLabel, definition, loading, erro
     setBusy('open')
     try {
       const api = await go()
-      await api.OpenObject(objWithDef)
+      await api.OpenObject(workspaceId, objWithDef)
     } catch (e) {
       setActionError(e.toString())
     } finally {

@@ -4,48 +4,48 @@ import {db} from '../models';
 import {config} from '../models';
 import {main} from '../models';
 
-export function CancelExport():Promise<void>;
+export function CancelExport(arg1:string):Promise<void>;
 
-export function CancelQuery():Promise<void>;
+export function CancelQuery(arg1:string):Promise<void>;
 
-export function Connect(arg1:db.ConnInfo):Promise<void>;
+export function Connect(arg1:string,arg2:db.ConnInfo):Promise<void>;
 
-export function CountObjects(arg1:string,arg2:string):Promise<number>;
+export function CountObjects(arg1:string,arg2:string,arg3:string):Promise<number>;
 
 export function DeleteConnection(arg1:config.SavedConnection):Promise<void>;
 
-export function Disconnect():Promise<void>;
+export function Disconnect(arg1:string):Promise<void>;
 
-export function ExecuteQuery(arg1:string,arg2:number):Promise<main.QueryResponse>;
+export function ExecuteQuery(arg1:string,arg2:string,arg3:number):Promise<main.QueryResponse>;
 
-export function ExportObjects(arg1:main.ExportRequest):Promise<void>;
+export function ExportObjects(arg1:string,arg2:main.ExportRequest):Promise<void>;
 
-export function GenerateInsertScript(arg1:main.InsertScriptRequest):Promise<string>;
+export function GenerateInsertScript(arg1:string,arg2:main.InsertScriptRequest):Promise<string>;
 
-export function GenerateTableScripts(arg1:string,arg2:string):Promise<Array<db.TableScript>>;
+export function GenerateTableScripts(arg1:string,arg2:string,arg3:string):Promise<Array<db.TableScript>>;
 
-export function GetDefinition(arg1:db.DbObject):Promise<db.DbObject>;
+export function GetDefinition(arg1:string,arg2:db.DbObject):Promise<db.DbObject>;
 
-export function GetObjectText(arg1:db.DbObject):Promise<string>;
+export function GetObjectText(arg1:string,arg2:db.DbObject):Promise<string>;
 
-export function GetSchemaModel(arg1:string,arg2:string,arg3:number):Promise<db.SchemaModel>;
+export function GetSchemaModel(arg1:string,arg2:string,arg3:string,arg4:number):Promise<db.SchemaModel>;
 
-export function IsConnected():Promise<boolean>;
+export function IsConnected(arg1:string):Promise<boolean>;
 
 export function ListDatabases(arg1:db.ConnInfo):Promise<Array<string>>;
 
-export function ListObjects(arg1:string,arg2:string,arg3:number):Promise<Array<db.DbObject>>;
+export function ListObjects(arg1:string,arg2:string,arg3:string,arg4:number):Promise<Array<db.DbObject>>;
 
 export function LoadConnections():Promise<Array<config.SavedConnection>>;
 
-export function OpenObject(arg1:db.DbObject):Promise<void>;
+export function OpenObject(arg1:string,arg2:db.DbObject):Promise<void>;
 
 export function PickDirectory():Promise<string>;
 
 export function SaveConnection(arg1:config.SavedConnection):Promise<void>;
 
-export function SaveObject(arg1:db.DbObject):Promise<string>;
+export function SaveObject(arg1:string,arg2:db.DbObject):Promise<string>;
 
 export function SaveScript(arg1:string,arg2:string):Promise<string>;
 
-export function SearchTables(arg1:string,arg2:number):Promise<Array<db.DbObject>>;
+export function SearchTables(arg1:string,arg2:string,arg3:number):Promise<Array<db.DbObject>>;
