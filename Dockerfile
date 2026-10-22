@@ -19,8 +19,7 @@ WORKDIR /build/backend
 ENV CGO_ENABLED=0
 ENV GOOS=linux
 
-COPY sp-extractor-wails/go.mod ./
-RUN go mod download
+COPY sp-extractor-wails/go.mod sp-extractor-wails/go.sum* ./
 
 # Copiar únicamente los paquetes requeridos por el servidor web
 COPY sp-extractor-wails/pkg/ ./pkg/
@@ -28,6 +27,9 @@ COPY sp-extractor-wails/cmd/ ./cmd/
 
 # Reemplazar el dist embebido con el generado por Vite
 COPY --from=frontend-builder /build/frontend/dist ./cmd/web/dist
+
+# Generar checksums exactos para las dependencias del servidor
+RUN go mod tidy
 
 # Compilar binario 100% estático
 RUN go build -ldflags="-s -w" -o /spextractor-web ./cmd/web
