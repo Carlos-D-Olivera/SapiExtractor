@@ -3,10 +3,13 @@
 import {db} from '../models';
 import {config} from '../models';
 import {main} from '../models';
+import {trace} from '../models';
 
 export function CancelExport(arg1:string):Promise<void>;
 
 export function CancelQuery(arg1:string):Promise<void>;
+
+export function CleanupTraceSessions(arg1:string):Promise<number>;
 
 export function Connect(arg1:string,arg2:db.ConnInfo):Promise<void>;
 
@@ -49,3 +52,9 @@ export function SaveObject(arg1:string,arg2:db.DbObject):Promise<string>;
 export function SaveScript(arg1:string,arg2:string):Promise<string>;
 
 export function SearchTables(arg1:string,arg2:string,arg3:number):Promise<Array<db.DbObject>>;
+
+export function StartTrace(arg1:string,arg2:trace.Options):Promise<void>;
+
+export function StopTrace(arg1:string):Promise<void>;
+
+export function TraceStatus(arg1:string):Promise<boolean>;

@@ -9,6 +9,7 @@ import clsx from 'clsx'
 import ObjectTable from './ObjectTable'
 import ExportBar from './ExportBar'
 import PreviewPanel from './PreviewPanel'
+import TracePanel from './TracePanel'
 import QueryWorkspace from './QueryWorkspace'
 import RelationsPanel from './RelationsPanel'
 import ScriptsPanel from './ScriptsPanel'
@@ -415,7 +416,20 @@ export default function WorkspaceView({
         </div>
       )}
 
-      {!(connInfo && view === 'query') && (
+      {/* Trace stays mounted (hidden) so a running trace keeps collecting while you switch views */}
+      {connInfo?.dbType === 'SQL_SERVER' && (
+        <div className={clsx('flex-1 flex flex-col overflow-hidden', view !== 'trace' && 'hidden')}>
+          <TracePanel
+            key={connSeq}
+            workspaceId={workspaceId}
+            connInfo={connInfo}
+            active={isActive && view === 'trace'}
+            onOpenInQuery={openScriptInQuery}
+          />
+        </div>
+      )}
+
+      {!(connInfo && (view === 'query' || (view === 'trace' && connInfo.dbType === 'SQL_SERVER'))) && (
         <>
           {/* Sidebar: Object Type Picker */}
           <aside

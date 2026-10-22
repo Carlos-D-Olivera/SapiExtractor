@@ -321,3 +321,22 @@ export namespace main {
 
 }
 
+export namespace trace {
+	
+	export class Options {
+	    minDurationMs: number;
+	    includeOwn: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new Options(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.minDurationMs = source["minDurationMs"];
+	        this.includeOwn = source["includeOwn"];
+	    }
+	}
+
+}
+

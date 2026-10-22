@@ -10,6 +10,10 @@ export function CancelQuery(arg1) {
   return window['go']['main']['App']['CancelQuery'](arg1);
 }
 
+export function CleanupTraceSessions(arg1) {
+  return window['go']['main']['App']['CleanupTraceSessions'](arg1);
+}
+
 export function Connect(arg1, arg2) {
   return window['go']['main']['App']['Connect'](arg1, arg2);
 }
@@ -92,4 +96,16 @@ export function SaveScript(arg1, arg2) {
 
 export function SearchTables(arg1, arg2, arg3) {
   return window['go']['main']['App']['SearchTables'](arg1, arg2, arg3);
+}
+
+export function StartTrace(arg1, arg2) {
+  return window['go']['main']['App']['StartTrace'](arg1, arg2);
+}
+
+export function StopTrace(arg1) {
+  return window['go']['main']['App']['StopTrace'](arg1);
+}
+
+export function TraceStatus(arg1) {
+  return window['go']['main']['App']['TraceStatus'](arg1);
 }

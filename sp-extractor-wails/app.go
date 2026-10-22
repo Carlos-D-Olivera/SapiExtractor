@@ -28,6 +28,8 @@ type WorkspaceSession struct {
 	exportCancel   context.CancelFunc
 	queryCancelMu  sync.Mutex
 	queryCancel    context.CancelFunc
+	traceMu        sync.Mutex
+	trace          *activeTrace
 }
 
 // App is the Wails application struct — all exported methods are available to the frontend.
@@ -55,6 +57,7 @@ func (a *App) shutdown(ctx context.Context) {
 	defer a.sessMu.Unlock()
 	for _, s := range a.sessions {
 		if s != nil && s.conn != nil {
+			s.stopTrace() // drop the server-side event session before closing
 			s.conn.Close()
 		}
 	}
@@ -99,6 +102,7 @@ func (a *App) ListDatabases(info db.ConnInfo) ([]string, error) {
 func (a *App) Connect(wsID string, info db.ConnInfo) error {
 	s := a.getOrCreateSession(wsID)
 	if s.conn != nil {
+		s.stopTrace()
 		s.conn.Close()
 		s.conn = nil
 	}
@@ -118,6 +122,7 @@ func (a *App) Disconnect(wsID string) {
 	defer a.sessMu.Unlock()
 	if s, ok := a.sessions[wsID]; ok && s != nil {
 		if s.conn != nil {
+			s.stopTrace()
 			s.conn.Close()
 			s.conn = nil
 		}

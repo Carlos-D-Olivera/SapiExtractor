@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
-  Plug, PlugZap, Layers, Terminal
+  Plug, PlugZap, Layers, Terminal, Activity
 } from 'lucide-react'
 import clsx from 'clsx'
 
@@ -211,6 +211,19 @@ export default function App() {
               <Terminal className="w-3.5 h-3.5" />
               Consultas
             </button>
+            {/* Trace (Extended Events) only exists for SQL Server connections */}
+            {activeWs.connInfo.dbType === 'SQL_SERVER' && (
+              <button
+                onClick={() => updateWorkspaceView(activeId, 'trace')}
+                className={clsx(
+                  'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all',
+                  activeWs.view === 'trace' ? 'bg-brand-dark/60 text-white' : 'text-slate-400 hover:text-slate-200'
+                )}
+              >
+                <Activity className="w-3.5 h-3.5" />
+                Traza
+              </button>
+            )}
           </div>
         )}
 
