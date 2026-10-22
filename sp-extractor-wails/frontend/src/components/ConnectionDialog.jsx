@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { X, Database, Server, User, Lock, Eye, EyeOff, Trash2, Clock, ChevronDown } from 'lucide-react'
+import { X, Database, Server, User, Lock, Eye, EyeOff, Trash2, Clock, ChevronDown, Download, Monitor } from 'lucide-react'
 import clsx from 'clsx'
 
 const DB_TYPES = [
@@ -118,6 +118,23 @@ export default function ConnectionDialog({ onConnect, onClose, savedConnections,
           ))}
         </div>
 
+        {/* Banner para bases de datos locales */}
+        <div className="mx-6 mt-3 px-3 py-2.5 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-between text-xs text-slate-300">
+          <div className="flex items-center gap-2">
+            <Monitor className="w-4 h-4 text-blue-400 flex-shrink-0" />
+            <span>¿Tu base de datos es <strong>local</strong> (en tu propia PC)?</span>
+          </div>
+          <a
+            href="https://github.com/Carlos-D-Olivera/SpExtractor/releases"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 hover:text-white border border-blue-500/30 font-medium transition-colors whitespace-nowrap ml-2"
+          >
+            <Download className="w-3.5 h-3.5" />
+            Descargar .exe
+          </a>
+        </div>
+
         <div className="overflow-y-auto max-h-[calc(90vh-180px)]">
           {tab === 'recent' ? (
             <div className="p-4 space-y-2">
@@ -134,7 +151,7 @@ export default function ConnectionDialog({ onConnect, onClose, savedConnections,
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-white truncate">{conn.dbName || '(no database)'}</p>
-                    <p className="text-xs text-slate-500">{conn.dbType?.replace('_', ' ')} · {conn.host}:{conn.port}</p>
+                    <p className="text-xs text-slate-500">{conn.dbType?.replace('_', ' ')} Â· {conn.host}:{conn.port}</p>
                   </div>
                   <button
                     className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg text-red-400 hover:bg-red-500/20 transition-all"
@@ -270,7 +287,7 @@ export default function ConnectionDialog({ onConnect, onClose, savedConnections,
               {connecting ? (
                 <>
                   <span className="w-3.5 h-3.5 border-2 border-brand-light/30 border-t-brand-light rounded-full animate-spin-slow" />
-                  Connecting…
+                  Connectingâ€¦
                 </>
               ) : 'Connect'}
             </button>

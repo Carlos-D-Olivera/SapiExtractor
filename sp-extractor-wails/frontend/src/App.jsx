@@ -482,10 +482,22 @@ export default function App() {
             </button>
           </div>
         ) : (
-          <button onClick={() => setShowConnDialog(true)} className="btn-primary">
-            <Plug className="w-3.5 h-3.5" />
-            Connect
-          </button>
+          <div className="flex items-center gap-2">
+            <a
+              href="https://github.com/Carlos-D-Olivera/SpExtractor/releases"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-700/60 hover:bg-surface-700 text-xs text-slate-300 hover:text-white border border-surface-600 transition-colors"
+              title="Descargar versión de escritorio para Windows (.exe) para bases de datos locales"
+            >
+              <Download className="w-3.5 h-3.5 text-brand-light" />
+              <span className="hidden sm:inline">Versión Local (.exe)</span>
+            </a>
+            <button onClick={() => setShowConnDialog(true)} className="btn-primary">
+              <Plug className="w-3.5 h-3.5" />
+              Connect
+            </button>
+          </div>
         )}
       </header>
 
