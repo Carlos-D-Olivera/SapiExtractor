@@ -51,7 +51,7 @@ function buildSchema(columns) {
   return schema
 }
 
-export default function QueryWorkspace({ connLabel, dbType, incomingSql, active: visible, onOpenInQuery }) {
+export default function QueryWorkspace({ workspaceId = '1', connLabel, dbType, incomingSql, active: visible, onOpenInQuery }) {
   const [tabs, setTabs] = useState(() => [newTab()])
   const [activeId, setActiveId] = useState(() => tabs[0].id)
   const [insertTarget, setInsertTarget] = useState(null)
@@ -161,7 +161,7 @@ export default function QueryWorkspace({ connLabel, dbType, incomingSql, active:
     ;(async () => {
       try {
         const api = await go()
-        const cols = await api.ListObjects('COLUMN', '', 0)
+        const cols = await api.ListObjects(workspaceId, 'COLUMN', '', 0)
         setSchema(buildSchema(cols || []))
       } catch { /* autocompletion just stays keyword-only */ }
     })()
@@ -210,12 +210,12 @@ export default function QueryWorkspace({ connLabel, dbType, incomingSql, active:
       const api = await go()
       // A query with its own TOP/LIMIT/FETCH is left alone; everything else gets the cap.
       const cap = EXPLICIT_LIMIT.test(text) ? 0 : maxRows
-      const result = await api.ExecuteQuery(text, cap)
+      const result = await api.ExecuteQuery(workspaceId, text, cap)
       patchTab(tab.id, { result, running: false })
     } catch (e) {
       patchTab(tab.id, { error: e.toString(), running: false })
     }
-  }, [patchTab, maxRows])
+  }, [workspaceId, patchTab, maxRows])
 
   const currentSelection = () => {
     const view = editorRef.current
@@ -227,7 +227,7 @@ export default function QueryWorkspace({ connLabel, dbType, incomingSql, active:
   const cancelQuery = async (tab) => {
     try {
       const api = await go()
-      await api.CancelQuery()
+      await api.CancelQuery(workspaceId)
     } catch { /* ignore */ }
   }
 

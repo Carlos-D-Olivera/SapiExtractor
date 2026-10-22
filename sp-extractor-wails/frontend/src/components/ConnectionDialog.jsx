@@ -18,7 +18,7 @@ const EMPTY_FORM = {
   rememberPassword: true,
 }
 
-export default function ConnectionDialog({ onConnect, onClose, savedConnections, onDeleteConnection }) {
+export default function ConnectionDialog({ workspaceId = '1', onConnect, onClose, savedConnections, onDeleteConnection }) {
   const [form, setForm] = useState(EMPTY_FORM)
   const [showPassword, setShowPassword] = useState(false)
   const [databases, setDatabases] = useState([])
@@ -58,7 +58,7 @@ export default function ConnectionDialog({ onConnect, onClose, savedConnections,
     setError('')
     try {
       const { Connect } = await import('../../wailsjs/go/main/App')
-      await Connect({ ...form })
+      await Connect(workspaceId, { ...form })
       onConnect({ ...form })
     } catch (e) {
       setError(e.toString())

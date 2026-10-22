@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { ArrowLeft, Loader2, AlertCircle, Copy, Check, Save, Terminal } from 'lucide-react'
 import clsx from 'clsx'
 
-export default function ScriptsPanel({ obj, onBack, onOpenInQuery }) {
+export default function ScriptsPanel({ workspaceId = '1', obj, onBack, onOpenInQuery }) {
   const [scripts, setScripts] = useState([])
   const [active, setActive] = useState('ddl')
   const [loading, setLoading] = useState(false)
@@ -19,7 +19,7 @@ export default function ScriptsPanel({ obj, onBack, onOpenInQuery }) {
     ;(async () => {
       try {
         const api = await import('../../wailsjs/go/main/App')
-        const list = await api.GenerateTableScripts(obj.schema, obj.name)
+        const list = await api.GenerateTableScripts(workspaceId, obj.schema, obj.name)
         if (!cancelled) {
           setScripts(list || [])
           setActive('ddl')
