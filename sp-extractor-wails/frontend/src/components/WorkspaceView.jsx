@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   Database, RefreshCw, Download,
   Table2, Columns, FunctionSquare, Zap, Eye, Loader2,
-  AlertCircle, FolderOpen, Plug
+  AlertCircle, FolderOpen, Plug, Terminal, Activity
 } from 'lucide-react'
 import clsx from 'clsx'
 
@@ -401,6 +401,47 @@ export default function WorkspaceView({
 
   return (
     <div className={clsx('flex-1 flex overflow-hidden', !isActive && 'hidden')}>
+      {/* Sidebar: object types + tools (Consultas, Traza) */}
+      <aside
+        className="w-52 flex-shrink-0 border-r border-surface-600 flex flex-col py-3 gap-1 px-2 select-none overflow-y-auto"
+        style={{ background: 'rgba(11,16,26,0.8)' }}
+      >
+        <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest px-2 mb-1">Object Type</p>
+        {OBJECT_TYPES.map(({ value, label, icon: Icon }) => (
+          <SidebarItem
+            key={value}
+            icon={Icon}
+            label={label}
+            selected={!!connInfo && view === 'objects' && value === objType}
+            disabled={!connInfo}
+            onClick={() => { setView('objects'); handleTypeChange(value) }}
+          />
+        ))}
+
+        {connInfo && (
+          <>
+            <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest px-2 mt-4 mb-1">Herramientas</p>
+            <SidebarItem
+              icon={Terminal}
+              label="Consultas"
+              selected={view === 'query'}
+              onClick={() => setView('query')}
+            />
+            {/* Trace (Extended Events) only exists for SQL Server connections */}
+            {connInfo.dbType === 'SQL_SERVER' && (
+              <SidebarItem
+                icon={Activity}
+                label="Traza"
+                selected={view === 'trace'}
+                onClick={() => setView('trace')}
+              />
+            )}
+          </>
+        )}
+      </aside>
+
+      {/* Content area: every view lives here */}
+      <div className="flex-1 flex overflow-hidden min-w-0">
       {/* Query workspace stays mounted (hidden) so its tabs survive view switches */}
       {connInfo && (
         <div className={clsx('flex-1 flex flex-col overflow-hidden', view !== 'query' && 'hidden')}>
@@ -429,38 +470,8 @@ export default function WorkspaceView({
         </div>
       )}
 
-      {!(connInfo && (view === 'query' || (view === 'trace' && connInfo.dbType === 'SQL_SERVER'))) && (
-        <>
-          {/* Sidebar: Object Type Picker */}
-          <aside
-            className="w-52 flex-shrink-0 border-r border-surface-600 flex flex-col py-3 gap-1 px-2 select-none"
-            style={{ background: 'rgba(11,16,26,0.8)' }}
-          >
-            <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest px-2 mb-1">Object Type</p>
-            {OBJECT_TYPES.map(({ value, label, icon: Icon }) => (
-              <button
-                key={value}
-                onClick={() => handleTypeChange(value)}
-                disabled={!connInfo}
-                className={clsx(
-                  'flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-all text-left',
-                  value === objType && connInfo
-                    ? 'text-brand-light border border-brand-dark/50'
-                    : 'text-slate-400 hover:text-slate-200 hover:bg-surface-700/40',
-                  !connInfo && 'opacity-30 cursor-not-allowed',
-                )}
-                style={value === objType && connInfo ? {
-                  background: 'linear-gradient(135deg, rgba(0,74,119,0.3), rgba(0,119,182,0.15))',
-                } : {}}
-              >
-                <Icon className="w-4 h-4 flex-shrink-0" />
-                <span className="truncate">{label}</span>
-              </button>
-            ))}
-          </aside>
-
-          {/* Main Panel */}
-          <main className="flex-1 flex flex-col overflow-hidden p-4 gap-4">
+      {/* Main Panel: object explorer */}
+      <main className={clsx('flex-1 flex flex-col overflow-hidden p-4 gap-4 min-w-0', connInfo && view !== 'objects' && 'hidden')}>
             {!connInfo ? (
               <div className="flex-1 flex flex-col items-center justify-center gap-4">
                 <div className="relative p-4 rounded-2xl flex items-center justify-center">
@@ -619,9 +630,29 @@ export default function WorkspaceView({
                 )}
               </>
             )}
-          </main>
-        </>
-      )}
+      </main>
+      </div>
     </div>
+  )
+}
+
+// One entry of the left navigation bar.
+function SidebarItem({ icon: Icon, label, selected, disabled, onClick }) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      className={clsx(
+        'flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-all text-left',
+        selected
+          ? 'text-brand-light border border-brand-dark/50'
+          : 'text-slate-400 hover:text-slate-200 hover:bg-surface-700/40',
+        disabled && 'opacity-30 cursor-not-allowed',
+      )}
+      style={selected ? { background: 'linear-gradient(135deg, rgba(0,74,119,0.3), rgba(0,119,182,0.15))' } : {}}
+    >
+      <Icon className="w-4 h-4 flex-shrink-0" />
+      <span className="truncate">{label}</span>
+    </button>
   )
 }

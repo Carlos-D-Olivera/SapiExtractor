@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
-  Plug, PlugZap, Layers, Terminal, Activity
+  Plug, PlugZap
 } from 'lucide-react'
 import clsx from 'clsx'
 
@@ -187,45 +187,6 @@ export default function App() {
         </div>
 
         <div className="flex-1" />
-
-        {/* View switch (active workspace) */}
-        {activeWs?.connInfo && (
-          <div className="flex items-center gap-1 p-0.5 rounded-lg" style={{ background: 'rgba(255,255,255,0.05)' }}>
-            <button
-              onClick={() => updateWorkspaceView(activeId, 'objects')}
-              className={clsx(
-                'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all',
-                activeWs.view === 'objects' ? 'bg-brand-dark/60 text-white' : 'text-slate-400 hover:text-slate-200'
-              )}
-            >
-              <Layers className="w-3.5 h-3.5" />
-              Explorador
-            </button>
-            <button
-              onClick={() => updateWorkspaceView(activeId, 'query')}
-              className={clsx(
-                'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all',
-                activeWs.view === 'query' ? 'bg-brand-dark/60 text-white' : 'text-slate-400 hover:text-slate-200'
-              )}
-            >
-              <Terminal className="w-3.5 h-3.5" />
-              Consultas
-            </button>
-            {/* Trace (Extended Events) only exists for SQL Server connections */}
-            {activeWs.connInfo.dbType === 'SQL_SERVER' && (
-              <button
-                onClick={() => updateWorkspaceView(activeId, 'trace')}
-                className={clsx(
-                  'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all',
-                  activeWs.view === 'trace' ? 'bg-brand-dark/60 text-white' : 'text-slate-400 hover:text-slate-200'
-                )}
-              >
-                <Activity className="w-3.5 h-3.5" />
-                Traza
-              </button>
-            )}
-          </div>
-        )}
 
         {/* Connection status (active workspace) */}
         {activeWs?.connInfo ? (
