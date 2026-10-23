@@ -17,6 +17,8 @@ export default function ObjectTable({
   totalCount,
   filteredCount,
   objType,
+  onSelectAllServer,
+  selectingAll,
 }) {
   const [sortDir, setSortDir] = useState('asc')
 
@@ -57,6 +59,10 @@ export default function ObjectTable({
     onSelectionChange(next)
   }
 
+  const effectiveTotal = search
+    ? (filteredCount != null ? filteredCount : null)
+    : (totalCount != null ? totalCount : null)
+
   return (
     <div className="flex flex-col h-full">
       {/* Toolbar */}
@@ -88,13 +94,42 @@ export default function ObjectTable({
         </span>
       </div>
 
+      {/* Banner de selección masiva completa cuando se han marcado los visibles y hay más en la base de datos */}
+      {allChecked && hasMore && onSelectAllServer && (
+        <div className="flex items-center justify-between px-3.5 py-2 mb-2 rounded-lg bg-brand-dark/40 border border-brand-500/40 text-xs text-slate-200">
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-brand-light animate-pulse" />
+            <span>
+              Se seleccionaron los <strong className="text-white">{filtered.length}</strong> objetos de esta página.
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={onSelectAllServer}
+            disabled={selectingAll}
+            className="btn-primary text-xs py-1 px-3 flex items-center gap-1.5 font-medium shadow-sm hover:brightness-110 active:scale-95 transition-all cursor-pointer"
+          >
+            {selectingAll ? (
+              <>
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                <span>Cargando todos los objetos...</span>
+              </>
+            ) : (
+              <span>
+                Seleccionar todos los {effectiveTotal != null ? effectiveTotal.toLocaleString() : ''} objetos
+              </span>
+            )}
+          </button>
+        </div>
+      )}
+
       {/* Table */}
       <div className="flex-1 overflow-auto rounded-xl border border-surface-600">
         <table className="w-full text-sm">
           <thead className="sticky top-0 z-10">
             <tr style={{ background: '#111B2C' }}>
               <th className="w-8 px-3 py-2.5">
-                <button onClick={toggleAll} className="text-slate-400 hover:text-brand-light transition-colors">
+                <button onClick={toggleAll} className="text-slate-400 hover:text-brand-light transition-colors" title={allChecked ? "Deseleccionar todo" : "Seleccionar todo"}>
                   {allChecked ? (
                     <CheckSquare className="w-4 h-4 text-brand-light" />
                   ) : someChecked ? (
@@ -192,11 +227,24 @@ export default function ObjectTable({
         </table>
       </div>
       {hasMore && (
-        <p className="text-[11px] text-amber-400 mt-2">
-          {search
-            ? `Mostrando los primeros ${objects.length} de ${filteredCount != null ? filteredCount.toLocaleString() : (objects.length + '+')} encontrados. Refina la búsqueda si no ves el que buscas.`
-            : `Mostrando los primeros ${objects.length} de ${totalCount != null ? totalCount.toLocaleString() : (objects.length + '+')}. Usa el buscador para encontrar el resto.`}
-        </p>
+        <div className="flex items-center justify-between mt-2 text-[11px] text-amber-400">
+          <p>
+            {search
+              ? `Mostrando los primeros ${objects.length} de ${filteredCount != null ? filteredCount.toLocaleString() : (objects.length + '+')} encontrados. Refina la búsqueda si no ves el que buscas.`
+              : `Mostrando los primeros ${objects.length} de ${totalCount != null ? totalCount.toLocaleString() : (objects.length + '+')}. Usa el buscador para encontrar el resto.`}
+          </p>
+          {onSelectAllServer && (
+            <button
+              type="button"
+              onClick={onSelectAllServer}
+              disabled={selectingAll}
+              className="text-brand-light hover:underline font-medium flex items-center gap-1 ml-2 whitespace-nowrap cursor-pointer"
+            >
+              {selectingAll && <Loader2 className="w-3 h-3 animate-spin" />}
+              Cargar y seleccionar todos ({effectiveTotal != null ? effectiveTotal.toLocaleString() : 'todos'})
+            </button>
+          )}
+        </div>
       )}
     </div>
   )

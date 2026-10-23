@@ -19,9 +19,8 @@ import (
 	"sp-extractor-wails/pkg/db/scriptgen"
 )
 
-// App is the Wails application struct — all exported methods are available to the frontend.
-type App struct {
-	ctx            context.Context
+// WorkspaceSession holds the state and active database connection for an individual workspace.
+type WorkspaceSession struct {
 	conn           *sql.DB
 	connInfo       db.ConnInfo
 	extractor      extractors.Extractor
@@ -29,11 +28,22 @@ type App struct {
 	exportCancel   context.CancelFunc
 	queryCancelMu  sync.Mutex
 	queryCancel    context.CancelFunc
+	traceMu        sync.Mutex
+	trace          *activeTrace
 }
 
-// NewApp creates a new App instance.
+// App is the Wails application struct — all exported methods are available to the frontend.
+type App struct {
+	ctx      context.Context
+	sessMu   sync.RWMutex
+	sessions map[string]*WorkspaceSession
+}
+
+// NewApp creates a new App instance with multi-workspace support.
 func NewApp() *App {
-	return &App{}
+	return &App{
+		sessions: make(map[string]*WorkspaceSession),
+	}
 }
 
 // startup is called by Wails when the application starts.
@@ -43,7 +53,42 @@ func (a *App) startup(ctx context.Context) {
 
 // shutdown is called by Wails when the application closes.
 func (a *App) shutdown(ctx context.Context) {
-	a.Disconnect()
+	a.sessMu.Lock()
+	defer a.sessMu.Unlock()
+	for _, s := range a.sessions {
+		if s != nil && s.conn != nil {
+			s.stopTrace() // drop the server-side event session before closing
+			s.conn.Close()
+		}
+	}
+	a.sessions = make(map[string]*WorkspaceSession)
+}
+
+func (a *App) getOrCreateSession(wsID string) *WorkspaceSession {
+	if wsID == "" {
+		wsID = "1"
+	}
+	a.sessMu.Lock()
+	defer a.sessMu.Unlock()
+	s, ok := a.sessions[wsID]
+	if !ok {
+		s = &WorkspaceSession{}
+		a.sessions[wsID] = s
+	}
+	return s
+}
+
+func (a *App) getSession(wsID string) (*WorkspaceSession, error) {
+	if wsID == "" {
+		wsID = "1"
+	}
+	a.sessMu.RLock()
+	defer a.sessMu.RUnlock()
+	s, ok := a.sessions[wsID]
+	if !ok || s == nil || s.conn == nil {
+		return nil, fmt.Errorf("espacio de trabajo %s no conectado", wsID)
+	}
+	return s, nil
 }
 
 // ---- Connection Management ----
@@ -53,91 +98,90 @@ func (a *App) ListDatabases(info db.ConnInfo) ([]string, error) {
 	return db.ListDatabases(info)
 }
 
-// Connect opens a persistent connection to the specified database.
-func (a *App) Connect(info db.ConnInfo) error {
-	if a.conn != nil {
-		a.conn.Close()
-		a.conn = nil
+// Connect opens a persistent connection to the specified database for the given workspace.
+func (a *App) Connect(wsID string, info db.ConnInfo) error {
+	s := a.getOrCreateSession(wsID)
+	if s.conn != nil {
+		s.stopTrace()
+		s.conn.Close()
+		s.conn = nil
 	}
 	conn, err := db.Open(info)
 	if err != nil {
 		return fmt.Errorf("connection failed: %w", err)
 	}
-	a.conn = conn
-	a.connInfo = info
-	a.extractor = extractors.New(info.DbType)
+	s.conn = conn
+	s.connInfo = info
+	s.extractor = extractors.New(info.DbType)
 	return nil
 }
 
-// Disconnect closes the current connection.
-func (a *App) Disconnect() {
-	if a.conn != nil {
-		a.conn.Close()
-		a.conn = nil
-		a.extractor = nil
+// Disconnect closes the current connection for the specified workspace.
+func (a *App) Disconnect(wsID string) {
+	a.sessMu.Lock()
+	defer a.sessMu.Unlock()
+	if s, ok := a.sessions[wsID]; ok && s != nil {
+		if s.conn != nil {
+			s.stopTrace()
+			s.conn.Close()
+			s.conn = nil
+		}
+		s.extractor = nil
 	}
 }
 
-// IsConnected returns whether a database connection is currently active.
-func (a *App) IsConnected() bool {
-	if a.conn == nil {
+// IsConnected returns whether a database connection is currently active for the workspace.
+func (a *App) IsConnected(wsID string) bool {
+	s, err := a.getSession(wsID)
+	if err != nil || s.conn == nil {
 		return false
 	}
-	return a.conn.Ping() == nil
+	return s.conn.Ping() == nil
 }
 
 // ---- Object Extraction ----
 
-// ListObjects returns database objects of the given type. term filters by
-// schema/name (substring, case-insensitive) and limit > 0 caps the result,
-// both resolved in SQL; term "" and limit 0 return everything.
-func (a *App) ListObjects(objType, term string, limit int) ([]db.DbObject, error) {
-	if a.conn == nil {
-		return nil, fmt.Errorf("not connected")
+// ListObjects returns database objects of the given type for the workspace.
+func (a *App) ListObjects(wsID, objType, term string, limit int) ([]db.DbObject, error) {
+	s, err := a.getSession(wsID)
+	if err != nil {
+		return nil, err
 	}
 	t := db.DbObjectType(objType)
-	return a.extractor.ExtractObjects(a.conn, t, strings.TrimSpace(term), limit)
+	return s.extractor.ExtractObjects(s.conn, t, strings.TrimSpace(term), limit)
 }
 
-// CountObjects returns the total number of objects of the given type,
-// optionally filtered by term (case-insensitive substring in SQL).
-func (a *App) CountObjects(objType, term string) (int, error) {
-	if a.conn == nil {
-		return 0, fmt.Errorf("not connected")
+// CountObjects returns the total number of objects of the given type for the workspace.
+func (a *App) CountObjects(wsID, objType, term string) (int, error) {
+	s, err := a.getSession(wsID)
+	if err != nil {
+		return 0, err
 	}
 	t := db.DbObjectType(objType)
-	return a.extractor.CountObjects(a.conn, t, strings.TrimSpace(term))
+	return s.extractor.CountObjects(s.conn, t, strings.TrimSpace(term))
 }
 
-// GetDefinition fills and returns the definition for a single DbObject.
-// The DROP-if-exists header is embedded directly in the returned definition for
-// every object type that has one (SP, View, Function, Table, Trigger).
-// Columns already produce a complete self-contained script in FillDefinition.
-// The returned object can be cached as-is: preview, copy, save-as, export and
-// open-in-editor all see the same ready-to-run script.
-func (a *App) GetDefinition(obj db.DbObject) (db.DbObject, error) {
-	if a.conn == nil {
-		return obj, fmt.Errorf("not connected")
-	}
-	if err := a.extractor.FillDefinition(a.conn, &obj); err != nil {
+// GetDefinition fills and returns the definition for a single DbObject in the workspace.
+func (a *App) GetDefinition(wsID string, obj db.DbObject) (db.DbObject, error) {
+	s, err := a.getSession(wsID)
+	if err != nil {
 		return obj, err
 	}
-	// Prepend the DROP header for every type that has one.
-	// dropHeader returns "" for Column (its script already has guards), so
-	// this is a no-op for columns.
+	if err := s.extractor.FillDefinition(s.conn, &obj); err != nil {
+		return obj, err
+	}
 	obj.Definition = dropHeader(obj) + obj.Definition
 	return obj, nil
 }
 
 // GetObjectText returns the script text used for copy / save-as / open-in-editor.
-// The DROP header is already embedded in obj.Definition (set by GetDefinition),
-// so this function just normalises an empty definition and returns it.
-func (a *App) GetObjectText(obj db.DbObject) (string, error) {
+func (a *App) GetObjectText(wsID string, obj db.DbObject) (string, error) {
 	if obj.Definition == "" {
-		if a.conn == nil {
-			return "", fmt.Errorf("not connected")
+		s, err := a.getSession(wsID)
+		if err != nil {
+			return "", err
 		}
-		if err := a.extractor.FillDefinition(a.conn, &obj); err != nil {
+		if err := s.extractor.FillDefinition(s.conn, &obj); err != nil {
 			return "", err
 		}
 		obj.Definition = dropHeader(obj) + obj.Definition
@@ -145,10 +189,9 @@ func (a *App) GetObjectText(obj db.DbObject) (string, error) {
 	return objectTextWithHeader(obj), nil
 }
 
-// SaveObject opens a native save dialog and writes the object (with DROP header)
-// to the chosen .sql file. Returns the saved path, or "" if the dialog was cancelled.
-func (a *App) SaveObject(obj db.DbObject) (string, error) {
-	text, err := a.GetObjectText(obj)
+// SaveObject opens a native save dialog and writes the object (with DROP header) to the chosen .sql file.
+func (a *App) SaveObject(wsID string, obj db.DbObject) (string, error) {
+	text, err := a.GetObjectText(wsID, obj)
 	if err != nil {
 		return "", err
 	}
@@ -171,10 +214,9 @@ func (a *App) SaveObject(obj db.DbObject) (string, error) {
 	return path, nil
 }
 
-// OpenObject writes the object (with DROP header) to a temp file and opens it
-// with the system default application (e.g. SQL Server Management Studio).
-func (a *App) OpenObject(obj db.DbObject) error {
-	text, err := a.GetObjectText(obj)
+// OpenObject writes the object (with DROP header) to a temp file and opens it.
+func (a *App) OpenObject(wsID string, obj db.DbObject) error {
+	text, err := a.GetObjectText(wsID, obj)
 	if err != nil {
 		return err
 	}
@@ -202,25 +244,25 @@ type ExportRequest struct {
 	OutDir  string        `json:"outDir"`
 }
 
-// ExportObjects exports the given objects to OutDir, emitting progress events.
-// The operation can be cancelled via CancelExport.
-func (a *App) ExportObjects(req ExportRequest) error {
-	if a.conn == nil {
-		return fmt.Errorf("not connected")
+// ExportObjects exports the given objects to OutDir, emitting progress events tagged with the workspaceId.
+func (a *App) ExportObjects(wsID string, req ExportRequest) error {
+	s, err := a.getSession(wsID)
+	if err != nil {
+		return err
 	}
 	if err := os.MkdirAll(req.OutDir, 0755); err != nil {
 		return fmt.Errorf("cannot create output directory: %w", err)
 	}
 
 	ctx, cancel := context.WithCancel(a.ctx)
-	a.exportCancelMu.Lock()
-	a.exportCancel = cancel
-	a.exportCancelMu.Unlock()
+	s.exportCancelMu.Lock()
+	s.exportCancel = cancel
+	s.exportCancelMu.Unlock()
 	defer func() {
 		cancel()
-		a.exportCancelMu.Lock()
-		a.exportCancel = nil
-		a.exportCancelMu.Unlock()
+		s.exportCancelMu.Lock()
+		s.exportCancel = nil
+		s.exportCancelMu.Unlock()
 	}()
 
 	total := len(req.Objects)
@@ -228,21 +270,20 @@ func (a *App) ExportObjects(req ExportRequest) error {
 		select {
 		case <-ctx.Done():
 			runtime.EventsEmit(a.ctx, "export:cancelled", map[string]interface{}{
-				"current": i,
-				"total":   total,
+				"workspaceId": wsID,
+				"current":     i,
+				"total":       total,
 			})
 			return nil
 		default:
 		}
 
-		// Lazy-load definition and embed DROP header for all applicable types.
-		// dropHeader returns "" for Column, which already has a self-contained
-		// script from FillDefinition, so this is a no-op for them.
 		if obj.Definition == "" {
-			if err := a.extractor.FillDefinition(a.conn, &obj); err != nil {
+			if err := s.extractor.FillDefinition(s.conn, &obj); err != nil {
 				runtime.EventsEmit(a.ctx, "export:error", map[string]interface{}{
-					"name":  obj.FullName(),
-					"error": err.Error(),
+					"workspaceId": wsID,
+					"name":        obj.FullName(),
+					"error":       err.Error(),
 				})
 				continue
 			}
@@ -250,7 +291,6 @@ func (a *App) ExportObjects(req ExportRequest) error {
 			req.Objects[i] = obj
 		}
 
-		// Write file
 		safeName := sanitizeName(obj.FullName())
 		filePath := fmt.Sprintf("%s/%s.sql", req.OutDir, safeName)
 		content := obj.Definition
@@ -263,27 +303,31 @@ func (a *App) ExportObjects(req ExportRequest) error {
 
 		pct := int(float64(i+1) / float64(total) * 100)
 		runtime.EventsEmit(a.ctx, "export:progress", map[string]interface{}{
-			"current": i + 1,
-			"total":   total,
-			"name":    obj.FullName(),
-			"percent": pct,
+			"workspaceId": wsID,
+			"current":     i + 1,
+			"total":       total,
+			"name":        obj.FullName(),
+			"percent":     pct,
 		})
 	}
 
 	runtime.EventsEmit(a.ctx, "export:done", map[string]interface{}{
-		"total":  total,
-		"outDir": req.OutDir,
+		"workspaceId": wsID,
+		"total":       total,
+		"outDir":      req.OutDir,
 	})
 	return nil
 }
 
-// CancelExport aborts an in-progress export operation.
-func (a *App) CancelExport() {
-	a.exportCancelMu.Lock()
-	defer a.exportCancelMu.Unlock()
-	if a.exportCancel != nil {
-		a.exportCancel()
-		a.exportCancel = nil
+// CancelExport aborts an in-progress export operation for the workspace.
+func (a *App) CancelExport(wsID string) {
+	if s, err := a.getSession(wsID); err == nil {
+		s.exportCancelMu.Lock()
+		defer s.exportCancelMu.Unlock()
+		if s.exportCancel != nil {
+			s.exportCancel()
+			s.exportCancel = nil
+		}
 	}
 }
 
@@ -300,9 +344,9 @@ func (a *App) PickDirectory() (string, error) {
 // ResultSet is a single tabular result produced by a SQL statement.
 type ResultSet struct {
 	Columns   []string    `json:"columns"`
-	Types     []string    `json:"types"` // database type name of each column, when available
+	Types     []string    `json:"types"`
 	Rows      [][]*string `json:"rows"`
-	Truncated bool        `json:"truncated"` // true when more rows existed than maxRows
+	Truncated bool        `json:"truncated"`
 }
 
 // QueryResponse is the outcome of executing one or more SQL statements.
@@ -313,64 +357,99 @@ type QueryResponse struct {
 	RowCount   int         `json:"rowCount"`
 }
 
-// ExecuteQuery runs an arbitrary SQL statement/script against the current
-// connection and returns every result set it produces. NULL cells are
-// represented as null pointers. maxRows caps the rows kept per result set
-// (0 = unlimited); sets cut short are flagged Truncated.
-func (a *App) ExecuteQuery(sqlText string, maxRows int) (QueryResponse, error) {
-	if a.conn == nil {
-		return QueryResponse{}, fmt.Errorf("not connected")
+// ExecuteQuery runs an arbitrary SQL statement/script against the workspace connection.
+func (a *App) ExecuteQuery(wsID, sqlText string, maxRows int) (QueryResponse, error) {
+	s, err := a.getSession(wsID)
+	if err != nil {
+		return QueryResponse{}, err
 	}
 	if strings.TrimSpace(sqlText) == "" {
 		return QueryResponse{}, fmt.Errorf("empty query")
 	}
 
 	ctx, cancel := context.WithCancel(a.ctx)
-	a.queryCancelMu.Lock()
-	a.queryCancel = cancel
-	a.queryCancelMu.Unlock()
+	s.queryCancelMu.Lock()
+	s.queryCancel = cancel
+	s.queryCancelMu.Unlock()
 	defer func() {
 		cancel()
-		a.queryCancelMu.Lock()
-		a.queryCancel = nil
-		a.queryCancelMu.Unlock()
+		s.queryCancelMu.Lock()
+		s.queryCancel = nil
+		s.queryCancelMu.Unlock()
 	}()
 
 	start := time.Now()
 	resp := QueryResponse{Sets: []ResultSet{}}
 
-	// Plain INSERT/UPDATE/DELETE/MERGE: Exec so we can report the rows affected.
-	if isPlainDML(sqlText) {
-		res, err := a.conn.ExecContext(ctx, sqlText)
+	// GO is a client-side batch separator (SSMS), not T-SQL: run each batch on its own.
+	batches := splitBatches(sqlText)
+	if len(batches) == 0 {
+		return resp, fmt.Errorf("empty query")
+	}
+	var affected int64
+	var dmlBatches int
+	for i, batch := range batches {
+		n, isDML, err := runBatch(ctx, s.conn, batch, maxRows, &resp)
 		if err != nil {
+			if len(batches) > 1 {
+				return resp, fmt.Errorf("lote %d de %d: %w", i+1, len(batches), err)
+			}
 			return resp, err
 		}
-		resp.DurationMs = time.Since(start).Milliseconds()
-		if n, err := res.RowsAffected(); err == nil && n >= 0 {
-			resp.Message = fmt.Sprintf("%d fila(s) afectada(s).", n)
-		} else {
-			resp.Message = "Comando ejecutado correctamente."
+		if isDML {
+			dmlBatches++
+			if n > 0 {
+				affected += n
+			}
 		}
-		return resp, nil
 	}
 
-	rows, err := a.conn.QueryContext(ctx, sqlText)
+	resp.DurationMs = time.Since(start).Milliseconds()
+	switch {
+	case len(resp.Sets) > 0:
+		resp.Message = fmt.Sprintf("%d conjunto(s) de resultados, %d fila(s).", len(resp.Sets), resp.RowCount)
+	case dmlBatches > 0 && dmlBatches == len(batches):
+		resp.Message = fmt.Sprintf("%d fila(s) afectada(s).", affected)
+	case len(batches) > 1:
+		resp.Message = fmt.Sprintf("%d lote(s) ejecutado(s) correctamente.", len(batches))
+	default:
+		resp.Message = "Comando ejecutado correctamente."
+	}
+	return resp, nil
+}
+
+// runBatch executes one batch and appends any result sets to resp. For a plain
+// INSERT/UPDATE/DELETE/MERGE it uses Exec and returns the rows affected.
+func runBatch(ctx context.Context, conn *sql.DB, sqlText string, maxRows int, resp *QueryResponse) (affected int64, isDML bool, err error) {
+	if isPlainDML(sqlText) {
+		res, err := conn.ExecContext(ctx, sqlText)
+		if err != nil {
+			return 0, true, err
+		}
+		n, nerr := res.RowsAffected()
+		if nerr != nil {
+			n = -1
+		}
+		return n, true, nil
+	}
+
+	rows, err := conn.QueryContext(ctx, sqlText)
 	if err != nil {
-		return resp, err
+		return 0, false, err
 	}
 	defer rows.Close()
 
 	for {
 		cols, err := rows.Columns()
 		if err != nil {
-			return resp, err
+			return 0, false, err
 		}
 		if len(cols) > 0 {
 			set := ResultSet{Columns: cols, Types: columnTypeNames(rows), Rows: [][]*string{}}
 			for rows.Next() {
 				if maxRows > 0 && len(set.Rows) >= maxRows {
 					set.Truncated = true
-					break // remaining rows of this set are discarded by NextResultSet/Close
+					break
 				}
 				vals := make([]any, len(cols))
 				ptrs := make([]any, len(cols))
@@ -378,7 +457,7 @@ func (a *App) ExecuteQuery(sqlText string, maxRows int) (QueryResponse, error) {
 					ptrs[i] = &vals[i]
 				}
 				if err := rows.Scan(ptrs...); err != nil {
-					return resp, err
+					return 0, false, err
 				}
 				row := make([]*string, len(cols))
 				for i, v := range vals {
@@ -387,7 +466,7 @@ func (a *App) ExecuteQuery(sqlText string, maxRows int) (QueryResponse, error) {
 				set.Rows = append(set.Rows, row)
 			}
 			if err := rows.Err(); err != nil {
-				return resp, err
+				return 0, false, err
 			}
 			resp.Sets = append(resp.Sets, set)
 			resp.RowCount += len(set.Rows)
@@ -396,14 +475,7 @@ func (a *App) ExecuteQuery(sqlText string, maxRows int) (QueryResponse, error) {
 			break
 		}
 	}
-
-	resp.DurationMs = time.Since(start).Milliseconds()
-	if len(resp.Sets) == 0 {
-		resp.Message = "Comando ejecutado correctamente."
-	} else {
-		resp.Message = fmt.Sprintf("%d conjunto(s) de resultados, %d fila(s).", len(resp.Sets), resp.RowCount)
-	}
-	return resp, nil
+	return 0, false, nil
 }
 
 var (
@@ -412,28 +484,24 @@ var (
 	sqlComment = regexp.MustCompile(`^(\s+|--[^\n]*(\n|$)|(?s:/\*.*?\*/))+`)
 )
 
-// isPlainDML reports whether sqlText is a single INSERT/UPDATE/DELETE/MERGE
-// statement that returns no rows (no OUTPUT / RETURNING clause). Anything
-// ambiguous (several statements, semicolons inside literals) returns false and
-// is run through the normal result-set path.
 func isPlainDML(sqlText string) bool {
 	s := sqlComment.ReplaceAllString(sqlText, "")
 	s = strings.TrimRight(s, " \t\r\n;")
 	return dmlStart.MatchString(s) && !strings.Contains(s, ";") && !dmlOutput.MatchString(s)
 }
 
-// CancelQuery aborts an in-progress query execution.
-func (a *App) CancelQuery() {
-	a.queryCancelMu.Lock()
-	defer a.queryCancelMu.Unlock()
-	if a.queryCancel != nil {
-		a.queryCancel()
-		a.queryCancel = nil
+// CancelQuery aborts an in-progress query execution for the workspace.
+func (a *App) CancelQuery(wsID string) {
+	if s, err := a.getSession(wsID); err == nil {
+		s.queryCancelMu.Lock()
+		defer s.queryCancelMu.Unlock()
+		if s.queryCancel != nil {
+			s.queryCancel()
+			s.queryCancel = nil
+		}
 	}
 }
 
-// columnTypeNames returns the driver's database type name for every column,
-// used to decide how result values are rendered in generated scripts.
 func columnTypeNames(rows *sql.Rows) []string {
 	types, err := rows.ColumnTypes()
 	if err != nil {
@@ -446,7 +514,6 @@ func columnTypeNames(rows *sql.Rows) []string {
 	return names
 }
 
-// valueToString converts a scanned database value into an optional string.
 func valueToString(v any) *string {
 	if v == nil {
 		return nil
@@ -467,51 +534,51 @@ func valueToString(v any) *string {
 
 // ---- Schema / relationship model ----
 
-// SearchTables returns tables (all schemas) whose name contains term.
-func (a *App) SearchTables(term string, limit int) ([]db.DbObject, error) {
-	if a.conn == nil {
-		return nil, fmt.Errorf("not connected")
+// SearchTables returns tables whose name contains term for the workspace.
+func (a *App) SearchTables(wsID, term string, limit int) ([]db.DbObject, error) {
+	s, err := a.getSession(wsID)
+	if err != nil {
+		return nil, err
 	}
 	if limit <= 0 {
 		limit = 100
 	}
-	return a.extractor.SearchTables(a.conn, term, limit)
+	return s.extractor.SearchTables(s.conn, term, limit)
 }
 
-// GetSchemaModel builds the foreign-key graph around a seed table, expanding
-// `depth` hops in both directions (references and referenced-by).
-func (a *App) GetSchemaModel(schema, table string, depth int) (db.SchemaModel, error) {
-	if a.conn == nil {
-		return db.SchemaModel{}, fmt.Errorf("not connected")
+// GetSchemaModel builds the foreign-key graph around a seed table for the workspace.
+func (a *App) GetSchemaModel(wsID, schema, table string, depth int) (db.SchemaModel, error) {
+	s, err := a.getSession(wsID)
+	if err != nil {
+		return db.SchemaModel{}, err
 	}
-	fks, err := a.extractor.ListForeignKeys(a.conn)
+	fks, err := s.extractor.ListForeignKeys(s.conn)
 	if err != nil {
 		return db.SchemaModel{}, fmt.Errorf("error listing foreign keys: %w", err)
 	}
 	seed := extractors.TableRef{Schema: schema, Name: table}
-	return extractors.BuildSchemaModel(a.conn, fks, seed, depth, func(s, t string) ([]db.TableColumn, error) {
-		return a.extractor.TableColumns(a.conn, s, t)
+	return extractors.BuildSchemaModel(s.conn, fks, seed, depth, func(sch, t string) ([]db.TableColumn, error) {
+		return s.extractor.TableColumns(s.conn, sch, t)
 	})
 }
 
-// GenerateTableScripts builds DDL (CREATE TABLE, indexes, foreign keys) and DML
-// templates (SELECT/INSERT/UPDATE/DELETE) for a table in the current dialect.
-func (a *App) GenerateTableScripts(schema, table string) ([]db.TableScript, error) {
-	if a.conn == nil {
-		return nil, fmt.Errorf("not connected")
+// GenerateTableScripts builds DDL and DML templates for a table in the workspace.
+func (a *App) GenerateTableScripts(wsID, schema, table string) ([]db.TableScript, error) {
+	s, err := a.getSession(wsID)
+	if err != nil {
+		return nil, err
 	}
-	meta, err := a.extractor.TableMeta(a.conn, schema, table)
+	meta, err := s.extractor.TableMeta(s.conn, schema, table)
 	if err != nil {
 		return nil, fmt.Errorf("error reading table metadata: %w", err)
 	}
 	if len(meta.Columns) == 0 {
 		return nil, fmt.Errorf("table %s not found or has no columns", table)
 	}
-	return scriptgen.Generate(a.connInfo.DbType, meta), nil
+	return scriptgen.Generate(s.connInfo.DbType, meta), nil
 }
 
-// InsertScriptRequest carries a query result plus the options needed to turn it
-// into an INSERT script for the destination table.
+// InsertScriptRequest carries a query result plus the options needed to turn it into an INSERT script.
 type InsertScriptRequest struct {
 	Schema         string      `json:"schema"`
 	Table          string      `json:"table"`
@@ -524,13 +591,16 @@ type InsertScriptRequest struct {
 	DeleteFirst    bool        `json:"deleteFirst"`
 }
 
-// GenerateInsertScript renders INSERT statements that reproduce the given
-// result rows in the current dialect.
-func (a *App) GenerateInsertScript(req InsertScriptRequest) (string, error) {
-	if a.connInfo.DbType == "" {
+// GenerateInsertScript renders INSERT statements reproducing the given rows.
+func (a *App) GenerateInsertScript(wsID string, req InsertScriptRequest) (string, error) {
+	s, err := a.getSession(wsID)
+	if err != nil {
+		return "", err
+	}
+	if s.connInfo.DbType == "" {
 		return "", fmt.Errorf("not connected")
 	}
-	return scriptgen.GenerateInsert(a.connInfo.DbType,
+	return scriptgen.GenerateInsert(s.connInfo.DbType,
 		scriptgen.InsertData{
 			Schema:  req.Schema,
 			Table:   req.Table,
@@ -547,7 +617,6 @@ func (a *App) GenerateInsertScript(req InsertScriptRequest) (string, error) {
 }
 
 // SaveScript opens a native save dialog and writes text to the chosen .sql file.
-// Returns the saved path, or "" if the dialog was cancelled.
 func (a *App) SaveScript(defaultName, text string) (string, error) {
 	path, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
 		Title:           "Guardar script",
@@ -583,6 +652,18 @@ func (a *App) DeleteConnection(conn config.SavedConnection) error {
 	return config.DeleteConnection(conn)
 }
 
+// ---- AutoCompletes ----
+
+// LoadAutoCompletes returns the saved autocompletes snippets from ~/.spextractor/autocompletes.json.
+func (a *App) LoadAutoCompletes() ([]config.AutoCompleteItem, error) {
+	return config.LoadAutoCompletes()
+}
+
+// SaveAutoCompletes persists the autocompletes snippets to ~/.spextractor/autocompletes.json.
+func (a *App) SaveAutoCompletes(items []config.AutoCompleteItem) error {
+	return config.SaveAutoCompletes(items)
+}
+
 // ---- Helpers ----
 
 var illegalRunes = []string{"\\", "/", ":", "*", "?", "\"", "<", ">", "|"}
@@ -594,7 +675,6 @@ func sanitizeName(name string) string {
 	return strings.TrimSpace(name)
 }
 
-// bracketName renders [schema].[name] the way SQL Server scripts expect it.
 func bracketName(obj db.DbObject) string {
 	if obj.Schema == "" {
 		return fmt.Sprintf("[%s]", obj.Name)
@@ -602,8 +682,6 @@ func bracketName(obj db.DbObject) string {
 	return fmt.Sprintf("[%s].[%s]", obj.Schema, obj.Name)
 }
 
-// dropHeader builds the IF EXISTS ... DROP ... GO preamble for an object type.
-// Returns "" for COLUMN (its script already embeds the guards).
 func dropHeader(obj db.DbObject) string {
 	if obj.Type == db.Column {
 		return ""
@@ -634,9 +712,6 @@ func dropHeader(obj db.DbObject) string {
 		fullName, cond, keyword, fullName)
 }
 
-// objectTextWithHeader returns the script text for an object.
-// The DROP header is already embedded in obj.Definition by GetDefinition /
-// GetObjectText, so this function just normalises an empty definition.
 func objectTextWithHeader(obj db.DbObject) string {
 	def := obj.Definition
 	if def == "" {
@@ -649,8 +724,6 @@ func objectTextWithHeader(obj db.DbObject) string {
 	return def
 }
 
-// defaultFileName builds the yyyyMMdd_<prefix>_<schema>_<name>.sql name used by
-// "Guardar como" and "Abrir en SQL Server" in the old Java UI.
 func defaultFileName(obj db.DbObject) string {
 	date := time.Now().Format("20060102")
 	var namePart string

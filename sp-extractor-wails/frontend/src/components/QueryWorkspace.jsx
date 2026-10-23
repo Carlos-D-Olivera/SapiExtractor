@@ -1,8 +1,8 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
-import { Play, Plus, X, Loader2, AlertCircle, Ban, Clock, Table2, Trash2, Sparkles, FileCode2 } from 'lucide-react'
+import { Play, Plus, X, Loader2, AlertCircle, Ban, Clock, Table2, Trash2, Sparkles, FileCode2, PanelBottomClose, PanelBottomOpen, Check } from 'lucide-react'
 import clsx from 'clsx'
-import SqlEditor from './SqlEditor'
-import AutocompletesModal, { getStoredAutocompletes, saveStoredAutocompletes } from './AutocompletesModal'
+import SqlEditor, { getIdentifierAtCursor, stripQuotes } from './SqlEditor'
+import AutocompletesModal, { getStoredAutocompletes, loadStoredAutocompletes, saveStoredAutocompletes } from './AutocompletesModal'
 import InsertScriptModal from './InsertScriptModal'
 
 let tabSeq = 0
@@ -51,11 +51,26 @@ function buildSchema(columns) {
   return schema
 }
 
-export default function QueryWorkspace({ connLabel, dbType, incomingSql, active: visible, onOpenInQuery }) {
+export default function QueryWorkspace({
+  workspaceId = '1',
+  connLabel,
+  dbType,
+  incomingSql,
+  active: visible,
+  onOpenInQuery,
+  onOpenTableDefinition,
+  onOpenTableRelations,
+  onOpenTableScripts,
+}) {
   const [tabs, setTabs] = useState(() => [newTab()])
   const [activeId, setActiveId] = useState(() => tabs[0].id)
   const [insertTarget, setInsertTarget] = useState(null)
   const [maxRows, setMaxRows] = useState(DEFAULT_ROW_LIMIT)
+  const [showResults, setShowResults] = useState(true)
+
+  const toggleResults = useCallback(() => {
+    setShowResults(prev => !prev)
+  }, [])
   const [fontSize, setFontSize] = useState(() => getStoredFontSize())
   const workspaceRef = useRef(null)
   const deltaRef = useRef(0)
@@ -148,10 +163,32 @@ export default function QueryWorkspace({ connLabel, dbType, incomingSql, active:
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [visible, changeFontSize, resetFontSize])
 
-  const handleSaveAutocompletes = (newList) => {
+  const handleSaveAutocompletes = async (newList) => {
     setAutocompletes(newList)
-    saveStoredAutocompletes(newList)
+    await saveStoredAutocompletes(newList)
   }
+
+  // Load autocompletes from persistent disk storage (~/.spextractor/autocompletes.json)
+  // and keep synced across all open workspaces.
+  useEffect(() => {
+    let mounted = true
+    loadStoredAutocompletes().then(loaded => {
+      if (mounted && loaded && Array.isArray(loaded)) {
+        setAutocompletes(loaded)
+      }
+    }).catch(() => {})
+
+    const handleUpdate = (e) => {
+      if (e.detail && Array.isArray(e.detail)) {
+        setAutocompletes(e.detail)
+      }
+    }
+    window.addEventListener('spextractor:autocompletes-updated', handleUpdate)
+    return () => {
+      mounted = false
+      window.removeEventListener('spextractor:autocompletes-updated', handleUpdate)
+    }
+  }, [])
 
   // Table/column names for autocompletion: loaded once per connection, the first
   // time the Consultas view is actually shown (not when the app starts).
@@ -161,7 +198,7 @@ export default function QueryWorkspace({ connLabel, dbType, incomingSql, active:
     ;(async () => {
       try {
         const api = await go()
-        const cols = await api.ListObjects('COLUMN', '', 0)
+        const cols = await api.ListObjects(workspaceId, 'COLUMN', '', 0)
         setSchema(buildSchema(cols || []))
       } catch { /* autocompletion just stays keyword-only */ }
     })()
@@ -172,6 +209,7 @@ export default function QueryWorkspace({ connLabel, dbType, incomingSql, active:
     if (!incomingSql || incomingSql.nonce === lastNonce.current) return
     lastNonce.current = incomingSql.nonce
     const t = { ...newTab(), sql: incomingSql.text }
+    if (incomingSql.title) t.title = incomingSql.title
     setTabs(prev => [...prev, t])
     setActiveId(t.id)
   }, [incomingSql])
@@ -205,17 +243,18 @@ export default function QueryWorkspace({ connLabel, dbType, incomingSql, active:
     if (!tab || tab.running) return
     const text = (selection ?? tab.sql)
     if (!text.trim()) return
+    setShowResults(true)
     patchTab(tab.id, { running: true, error: '', result: null, lastSql: text })
     try {
       const api = await go()
       // A query with its own TOP/LIMIT/FETCH is left alone; everything else gets the cap.
       const cap = EXPLICIT_LIMIT.test(text) ? 0 : maxRows
-      const result = await api.ExecuteQuery(text, cap)
+      const result = await api.ExecuteQuery(workspaceId, text, cap)
       patchTab(tab.id, { result, running: false })
     } catch (e) {
       patchTab(tab.id, { error: e.toString(), running: false })
     }
-  }, [patchTab, maxRows])
+  }, [workspaceId, patchTab, maxRows])
 
   const currentSelection = () => {
     const view = editorRef.current
@@ -227,7 +266,7 @@ export default function QueryWorkspace({ connLabel, dbType, incomingSql, active:
   const cancelQuery = async (tab) => {
     try {
       const api = await go()
-      await api.CancelQuery()
+      await api.CancelQuery(workspaceId)
     } catch { /* ignore */ }
   }
 
@@ -236,6 +275,140 @@ export default function QueryWorkspace({ connLabel, dbType, incomingSql, active:
     if (view) view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: '' } })
     patchTab(tab.id, { sql: '', lastSql: '', result: null, error: '' })
   }
+
+  const activeRef = useRef(active)
+  activeRef.current = active
+
+  const runQueryRef = useRef(runQuery)
+  runQueryRef.current = runQuery
+
+  const addTabRef = useRef(addTab)
+  addTabRef.current = addTab
+
+  const toggleResultsRef = useRef(toggleResults)
+  toggleResultsRef.current = toggleResults
+
+  const onOpenTableDefinitionRef = useRef(onOpenTableDefinition)
+  onOpenTableDefinitionRef.current = onOpenTableDefinition
+
+  const onOpenTableRelationsRef = useRef(onOpenTableRelations)
+  onOpenTableRelationsRef.current = onOpenTableRelations
+
+  const onOpenTableScriptsRef = useRef(onOpenTableScripts)
+  onOpenTableScriptsRef.current = onOpenTableScripts
+
+  const [copyToast, setCopyToast] = useState('')
+
+  const openQueryInNewTab = useCallback((sqlText, tabTitle, autoRun = false) => {
+    const t = { ...newTab(), sql: sqlText, title: tabTitle || 'Consulta' }
+    setTabs(prev => [...prev, t])
+    setActiveId(t.id)
+    if (autoRun) {
+      setTimeout(() => {
+        runQueryRef.current?.(t, sqlText)
+      }, 60)
+    }
+  }, [])
+
+  const handleSelectTop100 = useCallback((target) => {
+    if (!target) return
+    const clean = stripQuotes(target)
+    let sqlText = ''
+    if (dbType === 'SQL_SERVER') {
+      sqlText = `SELECT TOP 100 * FROM ${clean};`
+    } else {
+      sqlText = `SELECT * FROM ${clean} LIMIT 100;`
+    }
+    openQueryInNewTab(sqlText, `TOP 100 ${clean}`, true)
+  }, [dbType, openQueryInNewTab])
+
+  const handleGenerateScript = useCallback(async (target, scriptId) => {
+    if (!target) return
+    const clean = stripQuotes(target)
+    let schema = ''
+    let tableName = clean
+    if (clean.includes('.')) {
+      const parts = clean.split('.')
+      schema = parts[0]
+      tableName = parts.slice(1).join('.')
+    } else {
+      schema = dbType === 'POSTGRESQL' ? 'public' : 'dbo'
+    }
+
+    try {
+      const api = await go()
+      const list = await api.GenerateTableScripts(workspaceId, schema, tableName)
+      if (list && list.length > 0) {
+        const found = list.find(s => s.id === scriptId) || list[0]
+        openQueryInNewTab(found.sql, `${tableName} (${found.label})`, false)
+      } else {
+        openQueryInNewTab(`-- No se pudieron generar scripts para ${clean}`, clean, false)
+      }
+    } catch (e) {
+      console.error(e)
+    }
+  }, [workspaceId, dbType, openQueryInNewTab])
+
+  const handleCopyName = useCallback((target) => {
+    if (!target) return
+    const clean = stripQuotes(target)
+    try {
+      navigator.clipboard?.writeText(clean)
+      setCopyToast(`Copiado: ${clean}`)
+      setTimeout(() => setCopyToast(''), 1800)
+    } catch { /* ignore */ }
+  }, [])
+
+  const getTargetIdentifier = useCallback(() => {
+    let text = currentSelection()
+    if (!text && editorRef.current) {
+      const view = editorRef.current
+      const { head } = view.state.selection.main
+      text = getIdentifierAtCursor(view.state, head)
+    }
+    return text ? stripQuotes(text) : ''
+  }, [])
+
+  // F5 executes query; Ctrl+N opens a new query tab (prevents WebView2 reload / new window)
+  useEffect(() => {
+    if (!visible) return
+
+    const handleKeyDown = (e) => {
+      if (e.key === 'F5') {
+        const wasHandledByEditor = e.defaultPrevented || editorRef.current?.hasFocus
+        e.preventDefault()
+        const cur = activeRef.current
+        if (!wasHandledByEditor && cur && !cur.running && cur.sql?.trim()) {
+          runQueryRef.current?.(cur, currentSelection())
+        }
+      } else if ((e.ctrlKey || e.metaKey) && (e.key === 'n' || e.key === 'N')) {
+        e.preventDefault()
+        addTabRef.current?.()
+      } else if ((e.ctrlKey || e.metaKey) && !e.shiftKey && (e.key === 'r' || e.key === 'R')) {
+        e.preventDefault()
+        toggleResultsRef.current?.()
+      } else if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 't' || e.key === 'T')) {
+        e.preventDefault()
+        const target = getTargetIdentifier()
+        if (target) handleSelectTop100(target)
+      } else if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'r' || e.key === 'R')) {
+        e.preventDefault()
+        const target = getTargetIdentifier()
+        if (target) onOpenTableRelationsRef.current?.(target)
+      } else if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'c' || e.key === 'C')) {
+        e.preventDefault()
+        const target = getTargetIdentifier()
+        if (target) handleCopyName(target)
+      } else if (e.altKey && (e.key === 'F1' || e.code === 'F1')) {
+        e.preventDefault()
+        const target = getTargetIdentifier()
+        if (target) onOpenTableDefinitionRef.current?.(target)
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [visible, getTargetIdentifier, handleSelectTop100, handleCopyName])
 
   return (
     <div ref={workspaceRef} className="flex-1 flex flex-col overflow-hidden">
@@ -269,7 +442,7 @@ export default function QueryWorkspace({ connLabel, dbType, incomingSql, active:
         <button
           onClick={addTab}
           className="p-1.5 rounded text-slate-500 hover:text-brand-light hover:bg-surface-700/50 mb-0.5"
-          title="Nueva pestaña de consulta"
+          title="Nueva pestaña de consulta (Ctrl+N)"
         >
           <Plus className="w-4 h-4" />
         </button>
@@ -287,7 +460,7 @@ export default function QueryWorkspace({ connLabel, dbType, incomingSql, active:
               onClick={() => runQuery(active, currentSelection())}
               disabled={active.running || !active.sql.trim()}
               className="btn-primary text-xs py-1.5 px-3"
-              title="Ejecutar (Ctrl+Enter). Si hay texto seleccionado, ejecuta solo la selección"
+              title="Ejecutar (F5). Si hay texto seleccionado, ejecuta solo la selección"
             >
               {active.running
                 ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -314,6 +487,17 @@ export default function QueryWorkspace({ connLabel, dbType, incomingSql, active:
               <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-amber-400/20 text-amber-300 font-mono font-bold">
                 {autocompletes.length}
               </span>
+            </button>
+            <button
+              onClick={toggleResults}
+              className={clsx(
+                'btn-secondary text-xs py-1.5 px-3 flex items-center gap-1.5',
+                !showResults && 'bg-brand-primary/20 text-brand-light border-brand-primary/40'
+              )}
+              title={showResults ? 'Ocultar panel de resultados (Ctrl+R)' : 'Mostrar panel de resultados (Ctrl+R)'}
+            >
+              {showResults ? <PanelBottomClose className="w-3.5 h-3.5" /> : <PanelBottomOpen className="w-3.5 h-3.5" />}
+              {showResults ? 'Resultados' : 'Ver resultados'}
             </button>
 
             {/* Zoom text control */}
@@ -357,14 +541,17 @@ export default function QueryWorkspace({ connLabel, dbType, incomingSql, active:
                 {ROW_LIMITS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
             </label>
-            <span className="text-[10px] text-slate-600">Ctrl+Enter ejecuta · selección = solo eso</span>
+            <span className="text-[10px] text-slate-600">F5 ejecuta · selección = solo eso</span>
           </div>
 
           {/* Editor */}
-          <div className="px-3 flex-shrink-0">
+          <div className={clsx('px-3', showResults ? 'flex-shrink-0' : 'flex-1 overflow-hidden pb-3 min-h-0')}>
             <div
-              className="rounded-lg overflow-hidden resize-y"
-              style={{ height: 176, minHeight: 80, border: '1px solid rgba(36,51,80,0.8)' }}
+              className={clsx('rounded-lg overflow-hidden', showResults ? 'resize-y' : 'h-full')}
+              style={{
+                ...(showResults ? { height: 176, minHeight: 80 } : {}),
+                border: '1px solid rgba(36,51,80,0.8)',
+              }}
             >
               <SqlEditor
                 key={active.id}
@@ -376,12 +563,19 @@ export default function QueryWorkspace({ connLabel, dbType, incomingSql, active:
                 fontSize={fontSize}
                 viewRef={editorRef}
                 onRun={selection => runQuery(active, selection)}
+                onAltF1={table => onOpenTableDefinition?.(table)}
+                onSelectTop100={handleSelectTop100}
+                onOpenRelations={table => onOpenTableRelations?.(table)}
+                onOpenScripts={table => onOpenTableScripts?.(table)}
+                onGenerateScript={handleGenerateScript}
+                onCopyName={handleCopyName}
+                onToggleResults={toggleResults}
               />
             </div>
           </div>
 
           {/* Results */}
-          <div className="flex-1 overflow-hidden px-3 pb-3 pt-1">
+          <div className={clsx('flex-1 overflow-hidden px-3 pb-3 pt-1', !showResults && 'hidden')}>
             <ResultArea
               tab={active}
               fontSize={fontSize}
@@ -409,6 +603,14 @@ export default function QueryWorkspace({ connLabel, dbType, incomingSql, active:
           onClose={() => setInsertTarget(null)}
           onOpenInQuery={onOpenInQuery}
         />
+      )}
+
+      {/* Copy Toast feedback */}
+      {copyToast && (
+        <div className="fixed bottom-4 right-4 z-50 bg-[#18191a] border border-brand/70 text-white text-xs px-3 py-1.5 rounded-lg shadow-xl flex items-center gap-2 pointer-events-none transition-all">
+          <Check className="w-3.5 h-3.5 text-emerald-400" />
+          <span>{copyToast}</span>
+        </div>
       )}
     </div>
   )

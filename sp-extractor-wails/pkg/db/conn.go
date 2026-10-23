@@ -11,6 +11,9 @@ import (
 	_ "github.com/microsoft/go-mssqldb"
 )
 
+// AppName is the client application name this app reports to SQL Server.
+const AppName = "SapiExtractor"
+
 // buildSQLServerDSN builds a go-mssqldb URL connection string.
 //
 // The host may contain a named instance using the SQL Server "host\instance"
@@ -50,6 +53,7 @@ func buildSQLServerDSN(c ConnInfo, dbName string) string {
 	q := url.Values{}
 	q.Set("encrypt", "disable")
 	q.Set("TrustServerCertificate", "true")
+	q.Set("app name", AppName) // lets the trace tool tell this app's statements apart from others'
 	if dbName != "" {
 		q.Set("database", dbName)
 	}

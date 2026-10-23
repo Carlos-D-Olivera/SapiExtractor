@@ -1,8 +1,8 @@
 import { useState } from 'react'
-import { ArrowLeft, RefreshCw, Copy, Save, ExternalLink, Loader2, AlertCircle, Check } from 'lucide-react'
+import { ArrowLeft, RefreshCw, Copy, Save, ExternalLink, Loader2, AlertCircle, Check, Pencil, Bug } from 'lucide-react'
 import clsx from 'clsx'
 
-export default function PreviewPanel({ obj, typeLabel, definition, loading, error, onRefresh, onBack }) {
+export default function PreviewPanel({ workspaceId = '1', obj, typeLabel, definition, loading, error, onRefresh, onBack, onEdit, onDebug }) {
   const [copied, setCopied] = useState(false)
   const [actionError, setActionError] = useState('')
   const [busy, setBusy] = useState('') // 'copy' | 'save' | 'open'
@@ -24,7 +24,7 @@ export default function PreviewPanel({ obj, typeLabel, definition, loading, erro
     setBusy('copy')
     try {
       const api = await go()
-      const text = await api.GetObjectText(objWithDef)
+      const text = await api.GetObjectText(workspaceId, objWithDef)
       try {
         await navigator.clipboard.writeText(text)
       } catch {
@@ -51,7 +51,7 @@ export default function PreviewPanel({ obj, typeLabel, definition, loading, erro
     setBusy('save')
     try {
       const api = await go()
-      const path = await api.SaveObject(objWithDef)
+      const path = await api.SaveObject(workspaceId, objWithDef)
       if (path) {
         setSaveFeedback(path)
         setTimeout(() => setSaveFeedback(''), 2500)
@@ -69,7 +69,7 @@ export default function PreviewPanel({ obj, typeLabel, definition, loading, erro
     setBusy('open')
     try {
       const api = await go()
-      await api.OpenObject(objWithDef)
+      await api.OpenObject(workspaceId, objWithDef)
     } catch (e) {
       setActionError(e.toString())
     } finally {
@@ -104,6 +104,18 @@ export default function PreviewPanel({ obj, typeLabel, definition, loading, erro
           {busy === 'save' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
           Guardar como
         </button>
+        {onDebug && (
+          <button onClick={onDebug} disabled={loading} className="btn-secondary text-xs py-1.5 px-3" title="Ejecutar el procedimiento y ver qué sentencias, ramas y procedimientos anidados se ejecutaron">
+            <Bug className="w-3.5 h-3.5" />
+            Depurar
+          </button>
+        )}
+        {onEdit && (
+          <button onClick={onEdit} disabled={loading || !definition} className="btn-secondary text-xs py-1.5 px-3" title="Abrir la definición en una pestaña de Consultas para editarla">
+            <Pencil className="w-3.5 h-3.5" />
+            Editar
+          </button>
+        )}
         <button onClick={handleOpen} disabled={loading || busy} className="btn-primary text-xs py-1.5 px-3" title="Abrir archivo SQL en SQL Server / Editor predeterminado">
           {busy === 'open' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ExternalLink className="w-3.5 h-3.5" />}
           Abrir en SQL Server

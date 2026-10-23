@@ -1,6 +1,6 @@
-# SpExtractor (Wails v2 + React + Tailwind)
+# SapiExtractor (Wails v2 + React + Tailwind)
 
-Subproyecto que contiene la implementación moderna de escritorio de **SpExtractor** basada en **Wails v2**, **Go** y **React**.
+Subproyecto que contiene la implementación de escritorio de **SapiExtractor** basada en **Wails v2**, **Go** y **React**.
 
 ## 🚀 Inicio Rápido
 
@@ -24,15 +24,15 @@ go test -v ./...
 ```powershell
 wails build -clean
 ```
-El ejecutable binario para Windows se guardará en `build/bin/sp-extractor.exe`.
+El ejecutable binario para Windows se guardará en `build/bin/SapiExtractor.exe`.
 
 ## 📁 Estructura del Código
-- `app.go`: Bindings y métodos del backend expuestos hacia el frontend.
+- `app.go`: Bindings y métodos del backend expuestos hacia el frontend (conexión, extracción, exportación, ejecución de queries).
 - `main.go`: Inicialización de la ventana de Wails.
 - `pkg/config`: Almacenamiento local del historial de conexiones.
-- `pkg/db`: Conexiones SQL y modelos unificados de objetos de base de datos.
-- `pkg/db/extractors`: Estrategias de extracción por motor (SQL Server, MySQL, PostgreSQL).
-- `pkg/exporter`: Servicio de sanitización y exportación de archivos `.sql`.
-- `frontend/src`: Componentes de la interfaz de usuario en React con Tailwind CSS.
+- `pkg/db`: Conexiones SQL multimotor y modelos de objetos de base de datos.
+- `pkg/db/extractors`: Estrategias de extracción por motor (SQL Server, MySQL, PostgreSQL) y modelos de relaciones.
+- `pkg/db/scriptgen`: Generadores de DDL/DML para tablas y scripts `INSERT` masivos a partir de consultas.
+- `frontend/src`: Componentes de la interfaz de usuario en React 19 con Tailwind CSS y CodeMirror 6.
 
-Para más detalles, consulta la [Guía de Contribución](../CONTRIBUTING.md) y el [Resumen de Migración](../README.migration.md).
+Para más detalles, consulta la [Guía de Contribución](../CONTRIBUTING.md) y el [README principal](../README.md).
