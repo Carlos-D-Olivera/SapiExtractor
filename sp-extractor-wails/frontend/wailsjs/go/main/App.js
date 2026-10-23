@@ -78,6 +78,10 @@ export function ListObjects(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['ListObjects'](arg1, arg2, arg3, arg4);
 }
 
+export function LoadAutoCompletes() {
+  return window['go']['main']['App']['LoadAutoCompletes']();
+}
+
 export function LoadConnections() {
   return window['go']['main']['App']['LoadConnections']();
 }
@@ -92,6 +96,10 @@ export function PickDirectory() {
 
 export function PrepareProcedureDebug(arg1, arg2, arg3) {
   return window['go']['main']['App']['PrepareProcedureDebug'](arg1, arg2, arg3);
+}
+
+export function SaveAutoCompletes(arg1) {
+  return window['go']['main']['App']['SaveAutoCompletes'](arg1);
 }
 
 export function SaveConnection(arg1) {
