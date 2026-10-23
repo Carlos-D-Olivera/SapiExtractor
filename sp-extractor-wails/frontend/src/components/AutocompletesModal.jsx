@@ -1,6 +1,14 @@
-import { useState, useEffect } from 'react'
-import { X, Plus, Trash2, RotateCcw, Sparkles, Check, CheckSquare, Square } from 'lucide-react'
+import { useState, useEffect, useRef, useCallback } from 'react'
+import { X, Plus, Trash2, RotateCcw, Sparkles, Check, CheckSquare, Square, Save } from 'lucide-react'
 import clsx from 'clsx'
+
+let goApp = null
+async function go() {
+  if (!goApp) {
+    goApp = await import('../../wailsjs/go/main/App')
+  }
+  return goApp
+}
 
 export const DEFAULT_AUTOCOMPLETES = [
   { id: 'sel', code: 'sel', query: 'SELECT * FROM ', seleccionar: false },
@@ -21,7 +29,7 @@ export function getStoredAutocompletes() {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (raw) {
       const parsed = JSON.parse(raw)
-      if (Array.isArray(parsed) && parsed.length > 0) {
+      if (Array.isArray(parsed)) {
         return parsed.map(item => ({
           ...item,
           seleccionar: Boolean(item.seleccionar),
@@ -34,72 +42,173 @@ export function getStoredAutocompletes() {
   return DEFAULT_AUTOCOMPLETES
 }
 
-export function saveStoredAutocompletes(list) {
+export async function loadStoredAutocompletes() {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(list))
+    const api = await go()
+    if (api && typeof api.LoadAutoCompletes === 'function') {
+      const list = await api.LoadAutoCompletes()
+      if (Array.isArray(list)) {
+        // Migration: If backend file was freshly created with defaults,
+        // but localStorage had customized autocompletes, migrate them to disk.
+        const localRaw = localStorage.getItem(STORAGE_KEY)
+        if (localRaw) {
+          try {
+            const localParsed = JSON.parse(localRaw)
+            if (Array.isArray(localParsed) && localParsed.length > 0) {
+              const isDefaultBackend = JSON.stringify(list) === JSON.stringify(DEFAULT_AUTOCOMPLETES)
+              const isDifferentFromDefault = JSON.stringify(localParsed) !== JSON.stringify(DEFAULT_AUTOCOMPLETES)
+              if (isDefaultBackend && isDifferentFromDefault) {
+                await api.SaveAutoCompletes(localParsed)
+                return localParsed.map(item => ({ ...item, seleccionar: Boolean(item.seleccionar) }))
+              }
+            }
+          } catch { /* ignore migration parse errors */ }
+        }
+
+        const normalized = list.map(item => ({
+          ...item,
+          seleccionar: Boolean(item.seleccionar),
+        }))
+        try {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized))
+        } catch { /* ignore */ }
+        return normalized
+      }
+    }
+  } catch (e) {
+    console.error('Error loading autocompletes from Go backend:', e)
+  }
+  return getStoredAutocompletes()
+}
+
+export async function saveStoredAutocompletes(list) {
+  const normalized = (list || []).map(item => ({
+    ...item,
+    seleccionar: Boolean(item.seleccionar),
+  }))
+
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized))
   } catch (e) {
     console.error('Error saving autocompletes to localStorage:', e)
   }
+
+  try {
+    const api = await go()
+    if (api && typeof api.SaveAutoCompletes === 'function') {
+      await api.SaveAutoCompletes(normalized)
+    }
+  } catch (e) {
+    console.error('Error saving autocompletes to backend file:', e)
+  }
+
+  try {
+    window.dispatchEvent(new CustomEvent('spextractor:autocompletes-updated', { detail: normalized }))
+  } catch { /* ignore */ }
+
+  return normalized
 }
 
 export default function AutocompletesModal({ autocompletes, onSave, onClose }) {
   const [items, setItems] = useState(() => {
-    const list = autocompletes && autocompletes.length > 0 ? autocompletes : DEFAULT_AUTOCOMPLETES
+    const list = autocompletes && Array.isArray(autocompletes) && autocompletes.length > 0
+      ? autocompletes
+      : DEFAULT_AUTOCOMPLETES
     return list.map(it => ({ ...it, seleccionar: Boolean(it.seleccionar) }))
   })
   const [filter, setFilter] = useState('')
   const [savedNotice, setSavedNotice] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
+  const debounceTimerRef = useRef(null)
+  const itemsRef = useRef(items)
+  itemsRef.current = items
+
+  const triggerSave = useCallback(async (listToSave) => {
+    setIsSaving(true)
+    try {
+      await onSave(listToSave)
+      setSavedNotice(true)
+      setTimeout(() => setSavedNotice(false), 2000)
+    } finally {
+      setIsSaving(false)
+    }
+  }, [onSave])
+
+  const scheduleAutoSave = useCallback((nextItems) => {
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current)
+    debounceTimerRef.current = setTimeout(() => {
+      triggerSave(nextItems)
+    }, 400)
+  }, [triggerSave])
+
+  // Clean up debounce timer on unmount
+  useEffect(() => {
+    return () => {
+      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current)
+    }
+  }, [])
+
+  const handleClose = useCallback(async () => {
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current)
+      await triggerSave(itemsRef.current)
+    }
+    onClose()
+  }, [onClose, triggerSave])
 
   // Close on Escape key
   useEffect(() => {
     const onKey = (e) => {
-      if (e.key === 'Escape') onClose()
+      if (e.key === 'Escape') handleClose()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
+  }, [handleClose])
 
   const updateItem = (id, field, value) => {
-    const next = items.map(it => it.id === id ? { ...it, [field]: value } : it)
-    setItems(next)
-    onSave(next)
-    showSavedFeedback()
+    setItems(prev => {
+      const next = prev.map(it => it.id === id ? { ...it, [field]: value } : it)
+      scheduleAutoSave(next)
+      return next
+    })
   }
 
   const deleteItem = (id) => {
-    const next = items.filter(it => it.id !== id)
-    setItems(next)
-    onSave(next)
-    showSavedFeedback()
+    setItems(prev => {
+      const next = prev.filter(it => it.id !== id)
+      scheduleAutoSave(next)
+      return next
+    })
   }
 
   const addItem = () => {
     const newId = `ac_${Date.now()}`
-    const next = [
-      ...items,
-      { id: newId, code: '', query: '', seleccionar: false }
-    ]
-    setItems(next)
-    onSave(next)
+    const newItem = { id: newId, code: '', query: '', seleccionar: false }
+    setItems(prev => {
+      const next = [...prev, newItem]
+      scheduleAutoSave(next)
+      return next
+    })
+    setFilter('') // Clear filter so the new row is immediately visible
   }
 
-  const resetDefaults = () => {
+  const resetDefaults = async () => {
     if (window.confirm('¿Restablecer los autocompletados a los valores por defecto?')) {
+      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current)
       setItems(DEFAULT_AUTOCOMPLETES)
-      onSave(DEFAULT_AUTOCOMPLETES)
-      showSavedFeedback()
+      await triggerSave(DEFAULT_AUTOCOMPLETES)
     }
   }
 
-  const showSavedFeedback = () => {
-    setSavedNotice(true)
-    setTimeout(() => setSavedNotice(false), 1500)
+  const handleManualSave = async () => {
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current)
+    await triggerSave(itemsRef.current)
   }
 
   const filtered = items.filter(it => {
     if (!filter.trim()) return true
     const q = filter.toLowerCase()
-    return it.code.toLowerCase().includes(q) || it.query.toLowerCase().includes(q)
+    return (it.code || '').toLowerCase().includes(q) || (it.query || '').toLowerCase().includes(q)
   })
 
   return (
@@ -127,7 +236,7 @@ export default function AutocompletesModal({ autocompletes, onSave, onClose }) {
             </div>
           </div>
           <button
-            onClick={onClose}
+            onClick={handleClose}
             className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-surface-700 transition-colors"
             title="Cerrar (Esc)"
           >
@@ -143,9 +252,9 @@ export default function AutocompletesModal({ autocompletes, onSave, onClose }) {
               Palabras coincidentes se pintan de <strong className="text-amber-400 underline">amarillo</strong>. Coloca <strong className="text-amber-300 font-mono">#</strong> en la consulta para situar el cursor ahí automáticamente (ej. <code className="bg-surface-800/80 px-1 py-0.5 rounded font-mono text-[11px]">Codigo = '#'</code>).
             </span>
           </div>
-          {savedNotice && (
+          {(savedNotice || isSaving) && (
             <span className="flex items-center gap-1 text-[11px] text-emerald-400 font-medium">
-              <Check className="w-3.5 h-3.5" /> Guardado
+              <Check className="w-3.5 h-3.5" /> {isSaving ? 'Guardando…' : 'Guardado'}
             </span>
           )}
         </div>
@@ -259,15 +368,27 @@ export default function AutocompletesModal({ autocompletes, onSave, onClose }) {
 
         {/* Footer */}
         <div className="flex items-center justify-between px-6 py-3 border-t border-surface-600/60 bg-surface-800/40">
-          <div className="text-[11px] text-slate-500">
-            Los cambios se guardan automáticamente en tu navegador.
+          <div className="text-[11px] text-slate-400 flex items-center gap-1.5">
+            <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+            <span>Guardado permanente en <code className="font-mono text-amber-300 bg-surface-700/60 px-1 py-0.5 rounded text-[10px]">~/.spextractor/autocompletes.json</code></span>
           </div>
-          <button
-            onClick={onClose}
-            className="btn-primary text-xs py-1.5 px-4"
-          >
-            Listo
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleManualSave}
+              disabled={isSaving}
+              className="btn-secondary text-xs py-1.5 px-3 flex items-center gap-1.5"
+              title="Guardar cambios ahora"
+            >
+              <Save className="w-3.5 h-3.5" />
+              Guardar
+            </button>
+            <button
+              onClick={handleClose}
+              className="btn-primary text-xs py-1.5 px-4"
+            >
+              Listo
+            </button>
+          </div>
         </div>
       </div>
     </div>

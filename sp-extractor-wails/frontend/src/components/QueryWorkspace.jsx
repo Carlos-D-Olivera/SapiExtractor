@@ -2,7 +2,7 @@ import { useState, useCallback, useRef, useEffect } from 'react'
 import { Play, Plus, X, Loader2, AlertCircle, Ban, Clock, Table2, Trash2, Sparkles, FileCode2 } from 'lucide-react'
 import clsx from 'clsx'
 import SqlEditor from './SqlEditor'
-import AutocompletesModal, { getStoredAutocompletes, saveStoredAutocompletes } from './AutocompletesModal'
+import AutocompletesModal, { getStoredAutocompletes, loadStoredAutocompletes, saveStoredAutocompletes } from './AutocompletesModal'
 import InsertScriptModal from './InsertScriptModal'
 
 let tabSeq = 0
@@ -148,10 +148,32 @@ export default function QueryWorkspace({ workspaceId = '1', connLabel, dbType, i
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [visible, changeFontSize, resetFontSize])
 
-  const handleSaveAutocompletes = (newList) => {
+  const handleSaveAutocompletes = async (newList) => {
     setAutocompletes(newList)
-    saveStoredAutocompletes(newList)
+    await saveStoredAutocompletes(newList)
   }
+
+  // Load autocompletes from persistent disk storage (~/.spextractor/autocompletes.json)
+  // and keep synced across all open workspaces.
+  useEffect(() => {
+    let mounted = true
+    loadStoredAutocompletes().then(loaded => {
+      if (mounted && loaded && Array.isArray(loaded)) {
+        setAutocompletes(loaded)
+      }
+    }).catch(() => {})
+
+    const handleUpdate = (e) => {
+      if (e.detail && Array.isArray(e.detail)) {
+        setAutocompletes(e.detail)
+      }
+    }
+    window.addEventListener('spextractor:autocompletes-updated', handleUpdate)
+    return () => {
+      mounted = false
+      window.removeEventListener('spextractor:autocompletes-updated', handleUpdate)
+    }
+  }, [])
 
   // Table/column names for autocompletion: loaded once per connection, the first
   // time the Consultas view is actually shown (not when the app starts).
@@ -238,6 +260,37 @@ export default function QueryWorkspace({ workspaceId = '1', connLabel, dbType, i
     patchTab(tab.id, { sql: '', lastSql: '', result: null, error: '' })
   }
 
+  const activeRef = useRef(active)
+  activeRef.current = active
+
+  const runQueryRef = useRef(runQuery)
+  runQueryRef.current = runQuery
+
+  const addTabRef = useRef(addTab)
+  addTabRef.current = addTab
+
+  // F5 executes query; Ctrl+N opens a new query tab (prevents WebView2 reload / new window)
+  useEffect(() => {
+    if (!visible) return
+
+    const handleKeyDown = (e) => {
+      if (e.key === 'F5') {
+        const wasHandledByEditor = e.defaultPrevented || editorRef.current?.hasFocus
+        e.preventDefault()
+        const cur = activeRef.current
+        if (!wasHandledByEditor && cur && !cur.running && cur.sql?.trim()) {
+          runQueryRef.current?.(cur, currentSelection())
+        }
+      } else if ((e.ctrlKey || e.metaKey) && (e.key === 'n' || e.key === 'N')) {
+        e.preventDefault()
+        addTabRef.current?.()
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [visible])
+
   return (
     <div ref={workspaceRef} className="flex-1 flex flex-col overflow-hidden">
       {/* Tab bar */}
@@ -270,7 +323,7 @@ export default function QueryWorkspace({ workspaceId = '1', connLabel, dbType, i
         <button
           onClick={addTab}
           className="p-1.5 rounded text-slate-500 hover:text-brand-light hover:bg-surface-700/50 mb-0.5"
-          title="Nueva pestaña de consulta"
+          title="Nueva pestaña de consulta (Ctrl+N)"
         >
           <Plus className="w-4 h-4" />
         </button>
@@ -288,7 +341,7 @@ export default function QueryWorkspace({ workspaceId = '1', connLabel, dbType, i
               onClick={() => runQuery(active, currentSelection())}
               disabled={active.running || !active.sql.trim()}
               className="btn-primary text-xs py-1.5 px-3"
-              title="Ejecutar (Ctrl+Enter). Si hay texto seleccionado, ejecuta solo la selección"
+              title="Ejecutar (F5). Si hay texto seleccionado, ejecuta solo la selección"
             >
               {active.running
                 ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -358,7 +411,7 @@ export default function QueryWorkspace({ workspaceId = '1', connLabel, dbType, i
                 {ROW_LIMITS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
             </label>
-            <span className="text-[10px] text-slate-600">Ctrl+Enter ejecuta · selección = solo eso</span>
+            <span className="text-[10px] text-slate-600">F5 ejecuta · selección = solo eso</span>
           </div>
 
           {/* Editor */}

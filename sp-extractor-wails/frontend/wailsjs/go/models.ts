@@ -1,5 +1,23 @@
 export namespace config {
 	
+	export class AutoCompleteItem {
+	    id: string;
+	    code: string;
+	    query: string;
+	    seleccionar: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new AutoCompleteItem(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.code = source["code"];
+	        this.query = source["query"];
+	        this.seleccionar = source["seleccionar"];
+	    }
+	}
 	export class SavedConnection {
 	    dbType: string;
 	    host: string;

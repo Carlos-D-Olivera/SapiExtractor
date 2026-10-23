@@ -90,7 +90,7 @@ function sqlLanguage(dbType, schema) {
  *  - value / onChange: document text
  *  - dbType / schema: SQL dialect and { "schema.table": [columns] } used for autocompletion
  *  - autocompletes: list of { code, query } for TAB autocomplete & yellow highlighting
- *  - onRun(selectedTextOrNull): fired on Ctrl/Cmd+Enter
+ *  - onRun(selectedTextOrNull): fired on F5 or Ctrl/Cmd+Enter
  *  - viewRef: receives the EditorView
  */
 export default function SqlEditor({ value, onChange, dbType, schema, autocompletes, onRun, viewRef, fontSize = 12 }) {
@@ -108,6 +108,13 @@ export default function SqlEditor({ value, onChange, dbType, schema, autocomplet
 
   useEffect(() => {
     const runKeys = Prec.highest(keymap.of([{
+      key: 'F5',
+      run: (view) => {
+        const { from, to } = view.state.selection.main
+        onRunRef.current?.(from === to ? null : view.state.sliceDoc(from, to))
+        return true
+      },
+    }, {
       key: 'Mod-Enter',
       run: (view) => {
         const { from, to } = view.state.selection.main
