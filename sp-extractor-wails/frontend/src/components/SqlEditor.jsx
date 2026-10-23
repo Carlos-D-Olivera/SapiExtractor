@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { basicSetup } from 'codemirror'
-import { EditorView, keymap, MatchDecorator, Decoration, ViewPlugin } from '@codemirror/view'
+import { EditorView, keymap, MatchDecorator, Decoration, ViewPlugin, lineNumbers } from '@codemirror/view'
 import { Compartment, EditorState, EditorSelection, Prec } from '@codemirror/state'
 import {
   sql,
@@ -40,6 +40,7 @@ const theme = EditorView.theme({
   '&': { height: '100%', backgroundColor: '#18191A' },
   '.cm-scroller': { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace', overflow: 'auto' },
   '.cm-gutters': { backgroundColor: '#18191A', borderRight: '1px solid rgba(36,51,80,0.8)', color: '#64748b' },
+  '.cm-lineNumbers .cm-gutterElement': { cursor: 'pointer' },
   '.cm-activeLine': { backgroundColor: 'rgba(255,255,255,0.03)' },
   '.cm-activeLineGutter': { backgroundColor: 'rgba(255,255,255,0.05)' },
   '&.cm-focused': { outline: 'none' },
@@ -75,22 +76,155 @@ function makeFontSizeTheme(size) {
   })
 }
 
+// Selects the entire line (and supports extending/dragging across lines) when clicking line numbers
+const lineNumbersExtension = lineNumbers({
+  domEventHandlers: {
+    mousedown: (view, line, event) => {
+      if (event.button !== 0) return false
+      const doc = view.state.doc
+      const lineStart = doc.lineAt(line.from)
+      const lineEndPos = (l) => Math.min(l.to + 1, doc.length)
+
+      if (event.shiftKey) {
+        const currentAnchor = view.state.selection.main.anchor
+        const targetHead = currentAnchor <= lineStart.from ? lineEndPos(lineStart) : lineStart.from
+        view.dispatch({
+          selection: EditorSelection.single(currentAnchor, targetHead),
+          scrollIntoView: true,
+        })
+        view.focus()
+        return true
+      }
+
+      view.dispatch({
+        selection: EditorSelection.single(lineStart.from, lineEndPos(lineStart)),
+        scrollIntoView: true,
+      })
+      view.focus()
+
+      const onMouseMove = (moveEvent) => {
+        try {
+          const lineAtPos = view.lineBlockAtHeight(moveEvent.clientY - view.documentTop)
+          const currentLine = view.state.doc.lineAt(lineAtPos.from)
+          if (currentLine.from >= lineStart.from) {
+            view.dispatch({
+              selection: EditorSelection.single(lineStart.from, lineEndPos(currentLine)),
+            })
+          } else {
+            view.dispatch({
+              selection: EditorSelection.single(lineEndPos(lineStart), currentLine.from),
+            })
+          }
+        } catch { /* ignore */ }
+      }
+
+      const onMouseUp = () => {
+        window.removeEventListener('mousemove', onMouseMove)
+        window.removeEventListener('mouseup', onMouseUp)
+      }
+
+      window.addEventListener('mousemove', onMouseMove)
+      window.addEventListener('mouseup', onMouseUp)
+
+      return true
+    },
+  },
+})
+
 function escapeRegex(s) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
 // Strip surrounding quotes or brackets from autocompleted text ("name", [name], `name`, 'name')
-function stripQuotes(str) {
+export function stripQuotes(str) {
   if (typeof str !== 'string') return str
-  return str.replace(/^["'`\[](.*)["'`\]]$/, '$1')
+  return str.split('.')
+    .map(p => p.trim().replace(/^["'`\[]+|["'`\]]+$/g, ''))
+    .filter(Boolean)
+    .join('.')
 }
 
-function cleanOption(opt) {
+export function cleanOption(opt) {
   if (!opt) return opt
-  if (typeof opt.apply === 'string') {
-    return { ...opt, apply: stripQuotes(opt.apply) }
+  const res = { ...opt }
+  if (typeof res.label === 'string') {
+    res.label = stripQuotes(res.label)
   }
-  return opt
+  if (typeof res.apply === 'string') {
+    res.apply = stripQuotes(res.apply)
+  }
+  return res
+}
+
+export function getIdentifierAtCursor(state, head) {
+  if (!state || head == null) return ''
+  const line = state.doc.lineAt(head)
+  const lineText = line.text
+  const col = head - line.from
+  let start = col
+  while (start > 0 && /[a-zA-Z0-9_#$@.\[\]"`]/.test(lineText[start - 1])) {
+    start--
+  }
+  let end = col
+  while (end < lineText.length && /[a-zA-Z0-9_#$@.\[\]"`]/.test(lineText[end])) {
+    end++
+  }
+  if (start === end) return ''
+  return lineText.slice(start, end).trim()
+}
+
+export function extractTablesFromSql(sql) {
+  if (!sql) return []
+  const tables = new Set()
+  const cleanSql = sql
+    .replace(/--.*$/gm, ' ')
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/'(?:''|[^'])*'/g, ' ')
+
+  const joinRegex = /\b(?:LEFT\s+|RIGHT\s+|FULL\s+|INNER\s+|CROSS\s+)?JOIN\s+([a-zA-Z0-9_#$@.\[\]"`]+)/gi
+  let match
+  while ((match = joinRegex.exec(cleanSql)) !== null) {
+    const clean = stripQuotes(match[1])
+    if (clean) {
+      tables.add(clean.toLowerCase())
+      if (clean.includes('.')) tables.add(clean.split('.').pop().toLowerCase())
+    }
+  }
+
+  const updateRegex = /\bUPDATE\s+([a-zA-Z0-9_#$@.\[\]"`]+)/gi
+  while ((match = updateRegex.exec(cleanSql)) !== null) {
+    const clean = stripQuotes(match[1])
+    if (clean) {
+      tables.add(clean.toLowerCase())
+      if (clean.includes('.')) tables.add(clean.split('.').pop().toLowerCase())
+    }
+  }
+
+  const intoRegex = /\bINTO\s+([a-zA-Z0-9_#$@.\[\]"`]+)/gi
+  while ((match = intoRegex.exec(cleanSql)) !== null) {
+    const clean = stripQuotes(match[1])
+    if (clean) {
+      tables.add(clean.toLowerCase())
+      if (clean.includes('.')) tables.add(clean.split('.').pop().toLowerCase())
+    }
+  }
+
+  const fromRegex = /\bFROM\s+([^;()]+?)(?=\bWHERE\b|\bGROUP\b|\bORDER\b|\bHAVING\b|\bLIMIT\b|\bUNION\b|\bJOIN\b|\bLEFT\b|\bRIGHT\b|\bINNER\b|\bCROSS\b|\bFULL\b|;|\)|$)/gi
+  while ((match = fromRegex.exec(cleanSql)) !== null) {
+    const items = match[1].split(',')
+    for (const item of items) {
+      const trimmed = item.trim()
+      if (!trimmed) continue
+      const firstToken = trimmed.split(/\s+/)[0]
+      const clean = stripQuotes(firstToken)
+      if (clean && !/^(SELECT|WHERE|SET|VALUES|DEFAULT|CASE)$/i.test(clean)) {
+        tables.add(clean.toLowerCase())
+        if (clean.includes('.')) tables.add(clean.split('.').pop().toLowerCase())
+      }
+    }
+  }
+
+  return Array.from(tables)
 }
 
 function createHighlightPlugin(autocompletes) {
@@ -131,17 +265,68 @@ function sqlLanguage(dbType, schema) {
   }
 
   // Wrap schemaCompletionSource to guarantee no completion ever inserts surrounding quotes
+  // and suggest columns of queried tables when writing SELECT, WHERE, etc.
   const rawSource = schemaCompletionSource({ dialect, schema })
+
+  const processCompletionResult = (res, context) => {
+    const isDot = Boolean(context.matchBefore(/\.\w*$/))
+    let columnOptions = []
+    if (!isDot) {
+      const docText = context.state.doc.toString()
+      const queriedTables = extractTablesFromSql(docText)
+      if (queriedTables.length > 0) {
+        const seenCols = new Set()
+        for (const tbl of queriedTables) {
+          for (const [key, cols] of Object.entries(schema)) {
+            const lowerKey = key.toLowerCase()
+            if (lowerKey === tbl || lowerKey.endsWith('.' + tbl)) {
+              if (Array.isArray(cols)) {
+                for (const col of cols) {
+                  const colName = typeof col === 'string' ? col : col.label
+                  if (!colName || seenCols.has(colName.toLowerCase())) continue
+                  seenCols.add(colName.toLowerCase())
+                  columnOptions.push({
+                    label: colName,
+                    type: 'property',
+                    detail: key,
+                    boost: 2,
+                  })
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+
+    if (columnOptions.length === 0) {
+      if (res && res.options) {
+        return { ...res, options: res.options.map(cleanOption) }
+      }
+      return res
+    }
+
+    if (!res) {
+      const word = context.matchBefore(/[\w$#]+/)
+      if (!word && !context.explicit) return null
+      return {
+        from: word ? word.from : context.pos,
+        options: columnOptions.map(cleanOption),
+      }
+    }
+
+    return {
+      ...res,
+      options: [...columnOptions.map(cleanOption), ...(res.options || []).map(cleanOption)],
+    }
+  }
+
   const cleanSchemaSource = (context) => {
     const res = rawSource(context)
-    if (!res) return null
     if (res instanceof Promise) {
-      return res.then(r => r && r.options ? { ...r, options: r.options.map(cleanOption) } : r)
+      return res.then(r => processCompletionResult(r, context))
     }
-    if (res.options) {
-      return { ...res, options: res.options.map(cleanOption) }
-    }
-    return res
+    return processCompletionResult(res, context)
   }
 
   return new LanguageSupport(dialect.language, [
@@ -156,19 +341,36 @@ function sqlLanguage(dbType, schema) {
  *  - dbType / schema: SQL dialect and { "schema.table": [columns] } used for autocompletion
  *  - autocompletes: list of { code, query } for TAB autocomplete & yellow highlighting
  *  - onRun(selectedTextOrNull): fired on F5 or Ctrl/Cmd+Enter
+ *  - onAltF1(tableName): fired on Alt+F1 to inspect table definition
+ *  - onToggleResults(): fired on Ctrl+R to toggle query results pane
  *  - viewRef: receives the EditorView
  */
-export default function SqlEditor({ value, onChange, dbType, schema, autocompletes, onRun, viewRef, fontSize = 12 }) {
+export default function SqlEditor({
+  value,
+  onChange,
+  dbType,
+  schema,
+  autocompletes,
+  onRun,
+  onAltF1,
+  onToggleResults,
+  viewRef,
+  fontSize = 12,
+}) {
   const host = useRef(null)
   const lang = useRef(new Compartment())
   const highlightComp = useRef(new Compartment())
   const fontSizeComp = useRef(new Compartment())
   const onChangeRef = useRef(onChange)
   const onRunRef = useRef(onRun)
+  const onAltF1Ref = useRef(onAltF1)
+  const onToggleResultsRef = useRef(onToggleResults)
   const autocompletesRef = useRef(autocompletes)
 
   onChangeRef.current = onChange
   onRunRef.current = onRun
+  onAltF1Ref.current = onAltF1
+  onToggleResultsRef.current = onToggleResults
   autocompletesRef.current = autocompletes
 
   useEffect(() => {
@@ -184,6 +386,26 @@ export default function SqlEditor({ value, onChange, dbType, schema, autocomplet
       run: (view) => {
         const { from, to } = view.state.selection.main
         onRunRef.current?.(from === to ? null : view.state.sliceDoc(from, to))
+        return true
+      },
+    }, {
+      key: 'Alt-F1',
+      run: (view) => {
+        const { from, to, head } = view.state.selection.main
+        let text = from !== to ? view.state.sliceDoc(from, to).trim() : getIdentifierAtCursor(view.state, head)
+        if (text) {
+          const clean = stripQuotes(text)
+          if (clean) {
+            onAltF1Ref.current?.(clean)
+            return true
+          }
+        }
+        return false
+      },
+    }, {
+      key: 'Mod-r',
+      run: () => {
+        onToggleResultsRef.current?.()
         return true
       },
     }, {
@@ -263,6 +485,7 @@ export default function SqlEditor({ value, onChange, dbType, schema, autocomplet
         extensions: [
           customKeys,
           basicSetup,
+          lineNumbersExtension,
           lang.current.of(sqlLanguage(dbType, schema)),
           highlightComp.current.of(createHighlightPlugin(autocompletesRef.current)),
           fontSizeComp.current.of(makeFontSizeTheme(fontSize || 12)),

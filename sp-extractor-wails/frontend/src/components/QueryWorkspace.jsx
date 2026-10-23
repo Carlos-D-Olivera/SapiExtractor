@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
-import { Play, Plus, X, Loader2, AlertCircle, Ban, Clock, Table2, Trash2, Sparkles, FileCode2 } from 'lucide-react'
+import { Play, Plus, X, Loader2, AlertCircle, Ban, Clock, Table2, Trash2, Sparkles, FileCode2, PanelBottomClose, PanelBottomOpen } from 'lucide-react'
 import clsx from 'clsx'
-import SqlEditor from './SqlEditor'
+import SqlEditor, { getIdentifierAtCursor, stripQuotes } from './SqlEditor'
 import AutocompletesModal, { getStoredAutocompletes, loadStoredAutocompletes, saveStoredAutocompletes } from './AutocompletesModal'
 import InsertScriptModal from './InsertScriptModal'
 
@@ -51,11 +51,16 @@ function buildSchema(columns) {
   return schema
 }
 
-export default function QueryWorkspace({ workspaceId = '1', connLabel, dbType, incomingSql, active: visible, onOpenInQuery }) {
+export default function QueryWorkspace({ workspaceId = '1', connLabel, dbType, incomingSql, active: visible, onOpenInQuery, onOpenTableDefinition }) {
   const [tabs, setTabs] = useState(() => [newTab()])
   const [activeId, setActiveId] = useState(() => tabs[0].id)
   const [insertTarget, setInsertTarget] = useState(null)
   const [maxRows, setMaxRows] = useState(DEFAULT_ROW_LIMIT)
+  const [showResults, setShowResults] = useState(true)
+
+  const toggleResults = useCallback(() => {
+    setShowResults(prev => !prev)
+  }, [])
   const [fontSize, setFontSize] = useState(() => getStoredFontSize())
   const workspaceRef = useRef(null)
   const deltaRef = useRef(0)
@@ -228,6 +233,7 @@ export default function QueryWorkspace({ workspaceId = '1', connLabel, dbType, i
     if (!tab || tab.running) return
     const text = (selection ?? tab.sql)
     if (!text.trim()) return
+    setShowResults(true)
     patchTab(tab.id, { running: true, error: '', result: null, lastSql: text })
     try {
       const api = await go()
@@ -269,6 +275,12 @@ export default function QueryWorkspace({ workspaceId = '1', connLabel, dbType, i
   const addTabRef = useRef(addTab)
   addTabRef.current = addTab
 
+  const toggleResultsRef = useRef(toggleResults)
+  toggleResultsRef.current = toggleResults
+
+  const onOpenTableDefinitionRef = useRef(onOpenTableDefinition)
+  onOpenTableDefinitionRef.current = onOpenTableDefinition
+
   // F5 executes query; Ctrl+N opens a new query tab (prevents WebView2 reload / new window)
   useEffect(() => {
     if (!visible) return
@@ -284,6 +296,21 @@ export default function QueryWorkspace({ workspaceId = '1', connLabel, dbType, i
       } else if ((e.ctrlKey || e.metaKey) && (e.key === 'n' || e.key === 'N')) {
         e.preventDefault()
         addTabRef.current?.()
+      } else if ((e.ctrlKey || e.metaKey) && (e.key === 'r' || e.key === 'R')) {
+        e.preventDefault()
+        toggleResultsRef.current?.()
+      } else if (e.altKey && (e.key === 'F1' || e.code === 'F1')) {
+        e.preventDefault()
+        let text = currentSelection()
+        if (!text && editorRef.current) {
+          const view = editorRef.current
+          const { head } = view.state.selection.main
+          text = getIdentifierAtCursor(view.state, head)
+        }
+        if (text) {
+          const clean = stripQuotes(text)
+          if (clean) onOpenTableDefinitionRef.current?.(clean)
+        }
       }
     }
 
@@ -369,6 +396,17 @@ export default function QueryWorkspace({ workspaceId = '1', connLabel, dbType, i
                 {autocompletes.length}
               </span>
             </button>
+            <button
+              onClick={toggleResults}
+              className={clsx(
+                'btn-secondary text-xs py-1.5 px-3 flex items-center gap-1.5',
+                !showResults && 'bg-brand-primary/20 text-brand-light border-brand-primary/40'
+              )}
+              title={showResults ? 'Ocultar panel de resultados (Ctrl+R)' : 'Mostrar panel de resultados (Ctrl+R)'}
+            >
+              {showResults ? <PanelBottomClose className="w-3.5 h-3.5" /> : <PanelBottomOpen className="w-3.5 h-3.5" />}
+              {showResults ? 'Resultados' : 'Ver resultados'}
+            </button>
 
             {/* Zoom text control */}
             <div
@@ -415,10 +453,13 @@ export default function QueryWorkspace({ workspaceId = '1', connLabel, dbType, i
           </div>
 
           {/* Editor */}
-          <div className="px-3 flex-shrink-0">
+          <div className={clsx('px-3', showResults ? 'flex-shrink-0' : 'flex-1 overflow-hidden pb-3 min-h-0')}>
             <div
-              className="rounded-lg overflow-hidden resize-y"
-              style={{ height: 176, minHeight: 80, border: '1px solid rgba(36,51,80,0.8)' }}
+              className={clsx('rounded-lg overflow-hidden', showResults ? 'resize-y' : 'h-full')}
+              style={{
+                ...(showResults ? { height: 176, minHeight: 80 } : {}),
+                border: '1px solid rgba(36,51,80,0.8)',
+              }}
             >
               <SqlEditor
                 key={active.id}
@@ -430,12 +471,14 @@ export default function QueryWorkspace({ workspaceId = '1', connLabel, dbType, i
                 fontSize={fontSize}
                 viewRef={editorRef}
                 onRun={selection => runQuery(active, selection)}
+                onAltF1={table => onOpenTableDefinition?.(table)}
+                onToggleResults={toggleResults}
               />
             </div>
           </div>
 
           {/* Results */}
-          <div className="flex-1 overflow-hidden px-3 pb-3 pt-1">
+          <div className={clsx('flex-1 overflow-hidden px-3 pb-3 pt-1', !showResults && 'hidden')}>
             <ResultArea
               tab={active}
               fontSize={fontSize}

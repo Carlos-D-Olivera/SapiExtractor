@@ -399,6 +399,63 @@ export default function WorkspaceView({
     setView('query')
   }
 
+  const handleOpenTableDefinition = async (tableRef) => {
+    if (!tableRef || !connInfo) return
+    let schema = ''
+    let tableName = tableRef
+    if (tableRef.includes('.')) {
+      const parts = tableRef.split('.')
+      schema = parts[0]
+      tableName = parts.slice(1).join('.')
+    }
+
+    let targetObj = null
+    for (const o of knownRef.current.values()) {
+      if (o.type === 'TABLE' && o.name.toLowerCase() === tableName.toLowerCase()) {
+        if (!schema || o.schema.toLowerCase() === schema.toLowerCase()) {
+          targetObj = o
+          break
+        }
+      }
+    }
+
+    if (!targetObj) {
+      try {
+        const api = await go()
+        const matches = await api.ListObjects(workspaceId, 'TABLE', tableName, 10)
+        if (matches && matches.length > 0) {
+          const exact = matches.find(m =>
+            m.name.toLowerCase() === tableName.toLowerCase() &&
+            (!schema || m.schema.toLowerCase() === schema.toLowerCase())
+          )
+          targetObj = exact || matches[0]
+        }
+      } catch { /* ignore */ }
+    }
+
+    if (!targetObj) {
+      targetObj = {
+        type: 'TABLE',
+        schema: schema || (connInfo?.dbType === 'POSTGRESQL' ? 'public' : 'dbo'),
+        name: tableName,
+      }
+    }
+
+    setView('objects')
+    if (objType !== 'TABLE') {
+      setObjType('TABLE')
+      setSearch('')
+      setFilteredCount(null)
+      setSelected(new Set())
+      setSelectingAll(false)
+      setRelationsObj(null)
+      setScriptsObj(null)
+      setDebugObj(null)
+      loadObjects('TABLE', connInfo, false, '')
+    }
+    handlePreview(targetObj)
+  }
+
   // Opens the debugger for a procedure call captured in the trace, with its parameters prefilled.
   const debugFromTrace = async (ev) => {
     const api = await go()
@@ -486,6 +543,7 @@ export default function WorkspaceView({
             incomingSql={incomingSql}
             active={isActive && view === 'query'}
             onOpenInQuery={openScriptInQuery}
+            onOpenTableDefinition={handleOpenTableDefinition}
           />
         </div>
       )}

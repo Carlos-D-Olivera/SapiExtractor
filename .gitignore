@@ -29,7 +29,7 @@ dependency-reduced-pom.xml
 /dist/
 /nbdist/
 /.nb-gradle/
-build/
+/build/
 !**/src/main/**/build/
 !**/src/test/**/build/
 
@@ -38,3 +38,9 @@ build/
 
 ### Mac OS ###
 .DS_Store
+
+### Wails ###
+!sp-extractor-wails/build/
+sp-extractor-wails/build/bin/
+* - copia.*
+* - Copy.*
