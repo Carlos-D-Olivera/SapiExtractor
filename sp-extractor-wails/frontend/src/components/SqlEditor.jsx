@@ -2,10 +2,39 @@ import { useEffect, useRef } from 'react'
 import { basicSetup } from 'codemirror'
 import { EditorView, keymap, MatchDecorator, Decoration, ViewPlugin } from '@codemirror/view'
 import { Compartment, EditorState, EditorSelection, Prec } from '@codemirror/state'
-import { sql, MSSQL, MySQL, PostgreSQL } from '@codemirror/lang-sql'
+import {
+  sql,
+  MSSQL,
+  MySQL,
+  PostgreSQL,
+  SQLDialect,
+  schemaCompletionSource,
+  keywordCompletionSource,
+} from '@codemirror/lang-sql'
+import { LanguageSupport } from '@codemirror/language'
+import { acceptCompletion, closeCompletion, completionStatus } from '@codemirror/autocomplete'
+import { insertNewlineAndIndent } from '@codemirror/commands'
 import { oneDark } from '@codemirror/theme-one-dark'
 
-const DIALECTS = { SQL_SERVER: MSSQL, MYSQL: MySQL, POSTGRESQL: PostgreSQL }
+// Dialects with case-insensitive identifiers so names aren't auto-quoted
+const customMSSQL = SQLDialect.define({
+  ...MSSQL.spec,
+  caseInsensitiveIdentifiers: true,
+})
+const customMySQL = SQLDialect.define({
+  ...MySQL.spec,
+  caseInsensitiveIdentifiers: true,
+})
+const customPostgreSQL = SQLDialect.define({
+  ...PostgreSQL.spec,
+  caseInsensitiveIdentifiers: true,
+})
+
+const DIALECTS = {
+  SQL_SERVER: customMSSQL,
+  MYSQL: customMySQL,
+  POSTGRESQL: customPostgreSQL,
+}
 
 const theme = EditorView.theme({
   '&': { height: '100%', backgroundColor: '#18191A' },
@@ -50,6 +79,20 @@ function escapeRegex(s) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
+// Strip surrounding quotes or brackets from autocompleted text ("name", [name], `name`, 'name')
+function stripQuotes(str) {
+  if (typeof str !== 'string') return str
+  return str.replace(/^["'`\[](.*)["'`\]]$/, '$1')
+}
+
+function cleanOption(opt) {
+  if (!opt) return opt
+  if (typeof opt.apply === 'string') {
+    return { ...opt, apply: stripQuotes(opt.apply) }
+  }
+  return opt
+}
+
 function createHighlightPlugin(autocompletes) {
   const codes = (autocompletes || [])
     .map(a => a.code?.trim())
@@ -78,11 +121,33 @@ function createHighlightPlugin(autocompletes) {
 }
 
 function sqlLanguage(dbType, schema) {
-  return sql({
-    dialect: DIALECTS[dbType] || MSSQL,
-    schema,
-    upperCaseKeywords: true,
-  })
+  const dialect = DIALECTS[dbType] || customMSSQL
+
+  if (!schema || Object.keys(schema).length === 0) {
+    return sql({
+      dialect,
+      upperCaseKeywords: true,
+    })
+  }
+
+  // Wrap schemaCompletionSource to guarantee no completion ever inserts surrounding quotes
+  const rawSource = schemaCompletionSource({ dialect, schema })
+  const cleanSchemaSource = (context) => {
+    const res = rawSource(context)
+    if (!res) return null
+    if (res instanceof Promise) {
+      return res.then(r => r && r.options ? { ...r, options: r.options.map(cleanOption) } : r)
+    }
+    if (res.options) {
+      return { ...res, options: res.options.map(cleanOption) }
+    }
+    return res
+  }
+
+  return new LanguageSupport(dialect.language, [
+    dialect.language.data.of({ autocomplete: cleanSchemaSource }),
+    dialect.language.data.of({ autocomplete: keywordCompletionSource(dialect, true) }),
+  ])
 }
 
 /**
@@ -107,7 +172,7 @@ export default function SqlEditor({ value, onChange, dbType, schema, autocomplet
   autocompletesRef.current = autocompletes
 
   useEffect(() => {
-    const runKeys = Prec.highest(keymap.of([{
+    const customKeys = Prec.highest(keymap.of([{
       key: 'F5',
       run: (view) => {
         const { from, to } = view.state.selection.main
@@ -121,56 +186,73 @@ export default function SqlEditor({ value, onChange, dbType, schema, autocomplet
         onRunRef.current?.(from === to ? null : view.state.sliceDoc(from, to))
         return true
       },
-    }]))
-
-    // Highest-priority TAB key handler to expand autocomplete codes (case-insensitive)
-    const tabKeys = Prec.highest(keymap.of([{
+    }, {
+      // Enter: When completion popup is open, close it and insert newline.
+      // Prevents Enter from ever accepting autocomplete suggestions!
+      key: 'Enter',
+      run: (view) => {
+        if (completionStatus(view.state)) {
+          closeCompletion(view)
+        }
+        return insertNewlineAndIndent(view)
+      },
+    }, {
+      // Tab: Expand snippet if code matches, otherwise accept completion suggestion if popup is open.
       key: 'Tab',
       run: (view) => {
         const list = autocompletesRef.current || []
-        if (list.length === 0) return false
-
         const { from: selFrom, to: selTo, head } = view.state.selection.main
-        if (selFrom !== selTo) return false // don't replace ranged selections
 
-        const line = view.state.doc.lineAt(head)
-        const textBefore = view.state.sliceDoc(line.from, head)
-        const match = textBefore.match(/([a-zA-Z0-9_#$@]+)$/)
-        if (!match) return false
+        // 1. Check if word before cursor matches an AutoComplete snippet code
+        if (selFrom === selTo && list.length > 0) {
+          const line = view.state.doc.lineAt(head)
+          const textBefore = view.state.sliceDoc(line.from, head)
+          const match = textBefore.match(/([a-zA-Z0-9_#$@]+)$/)
+          if (match) {
+            const typedWord = match[1]
+            const matched = list.find(it => it.code && it.code.trim().toLowerCase() === typedWord.toLowerCase())
+            if (matched && matched.query) {
+              closeCompletion(view)
 
-        const typedWord = match[1]
-        const matched = list.find(it => it.code && it.code.trim().toLowerCase() === typedWord.toLowerCase())
-        if (!matched || !matched.query) return false
+              const from = head - typedWord.length
+              const to = head
+              const rawQuery = matched.query
 
-        const from = head - typedWord.length
-        const to = head
-        const rawQuery = matched.query
+              let insertText = rawQuery
+              let selection
 
-        let insertText = rawQuery
-        let selection
+              const firstHash = rawQuery.indexOf('#')
+              if (firstHash !== -1) {
+                const secondHash = rawQuery.indexOf('#', firstHash + 1)
+                if (secondHash !== -1) {
+                  insertText = rawQuery.slice(0, firstHash) + rawQuery.slice(firstHash + 1, secondHash) + rawQuery.slice(secondHash + 1)
+                  selection = EditorSelection.single(from + firstHash, from + secondHash - 1)
+                } else {
+                  insertText = rawQuery.slice(0, firstHash) + rawQuery.slice(firstHash + 1)
+                  selection = EditorSelection.cursor(from + firstHash)
+                }
+              } else if (matched.seleccionar) {
+                selection = EditorSelection.single(from, from + insertText.length)
+              } else {
+                selection = EditorSelection.cursor(from + insertText.length)
+              }
 
-        const firstHash = rawQuery.indexOf('#')
-        if (firstHash !== -1) {
-          const secondHash = rawQuery.indexOf('#', firstHash + 1)
-          if (secondHash !== -1) {
-            insertText = rawQuery.slice(0, firstHash) + rawQuery.slice(firstHash + 1, secondHash) + rawQuery.slice(secondHash + 1)
-            selection = EditorSelection.single(from + firstHash, from + secondHash - 1)
-          } else {
-            insertText = rawQuery.slice(0, firstHash) + rawQuery.slice(firstHash + 1)
-            selection = EditorSelection.cursor(from + firstHash)
+              view.dispatch({
+                changes: { from, to, insert: insertText },
+                selection,
+                scrollIntoView: true,
+              })
+              return true
+            }
           }
-        } else if (matched.seleccionar) {
-          selection = EditorSelection.single(from, from + insertText.length)
-        } else {
-          selection = EditorSelection.cursor(from + insertText.length)
         }
 
-        view.dispatch({
-          changes: { from, to, insert: insertText },
-          selection,
-          scrollIntoView: true,
-        })
-        return true
+        // 2. If completion suggestion popup is open, accept the completion with TAB
+        if (acceptCompletion(view)) {
+          return true
+        }
+
+        return false
       },
     }]))
 
@@ -179,8 +261,7 @@ export default function SqlEditor({ value, onChange, dbType, schema, autocomplet
       state: EditorState.create({
         doc: value || '',
         extensions: [
-          runKeys,
-          tabKeys,
+          customKeys,
           basicSetup,
           lang.current.of(sqlLanguage(dbType, schema)),
           highlightComp.current.of(createHighlightPlugin(autocompletesRef.current)),
