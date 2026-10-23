@@ -399,6 +399,118 @@ export default function WorkspaceView({
     setView('query')
   }
 
+  const resolveTableOrObject = async (tableRef) => {
+    if (!tableRef || !connInfo) return null
+    let schema = ''
+    let tableName = tableRef
+    if (tableRef.includes('.')) {
+      const parts = tableRef.split('.')
+      schema = parts[0]
+      tableName = parts.slice(1).join('.')
+    }
+
+    let targetObj = null
+    const priorityTypes = ['TABLE', 'VIEW', 'STORED_PROCEDURE', 'FUNCTION']
+    for (const t of priorityTypes) {
+      for (const o of knownRef.current.values()) {
+        if (o.type === t && o.name.toLowerCase() === tableName.toLowerCase()) {
+          if (!schema || (o.schema && o.schema.toLowerCase() === schema.toLowerCase())) {
+            targetObj = o
+            break
+          }
+        }
+      }
+      if (targetObj) break
+    }
+
+    if (!targetObj) {
+      try {
+        const api = await go()
+        for (const t of priorityTypes) {
+          const matches = await api.ListObjects(workspaceId, t, tableName, 10)
+          if (matches && matches.length > 0) {
+            const exact = matches.find(m =>
+              m.name.toLowerCase() === tableName.toLowerCase() &&
+              (!schema || (m.schema && m.schema.toLowerCase() === schema.toLowerCase()))
+            )
+            if (exact) {
+              targetObj = exact
+              break
+            } else if (!targetObj) {
+              targetObj = matches[0]
+            }
+          }
+        }
+      } catch { /* ignore */ }
+    }
+
+    if (!targetObj) {
+      targetObj = {
+        type: 'TABLE',
+        schema: schema || (connInfo?.dbType === 'POSTGRESQL' ? 'public' : 'dbo'),
+        name: tableName,
+      }
+    }
+    return targetObj
+  }
+
+  const handleOpenTableDefinition = async (tableRef) => {
+    const targetObj = await resolveTableOrObject(tableRef)
+    if (!targetObj) return
+
+    setView('objects')
+    setRelationsObj(null)
+    setScriptsObj(null)
+    setDebugObj(null)
+    if (objType !== targetObj.type) {
+      setObjType(targetObj.type)
+      setSearch('')
+      setFilteredCount(null)
+      setSelected(new Set())
+      setSelectingAll(false)
+      loadObjects(targetObj.type, connInfo, false, '')
+    }
+    handlePreview(targetObj)
+  }
+
+  const handleOpenTableRelations = async (tableRef) => {
+    const targetObj = await resolveTableOrObject(tableRef)
+    if (!targetObj) return
+
+    setView('objects')
+    setPreviewObj(null)
+    setScriptsObj(null)
+    setDebugObj(null)
+    if (objType !== 'TABLE') {
+      setObjType('TABLE')
+      setSearch('')
+      setFilteredCount(null)
+      setSelected(new Set())
+      setSelectingAll(false)
+      loadObjects('TABLE', connInfo, false, '')
+    }
+    setRelationsObj(targetObj)
+  }
+
+  const handleOpenTableScripts = async (tableRef) => {
+    const targetObj = await resolveTableOrObject(tableRef)
+    if (!targetObj) return
+
+    setView('objects')
+    setPreviewObj(null)
+    setRelationsObj(null)
+    setDebugObj(null)
+    if (objType !== 'TABLE') {
+      setObjType('TABLE')
+      setSearch('')
+      setFilteredCount(null)
+      setSelected(new Set())
+      setSelectingAll(false)
+      loadObjects('TABLE', connInfo, false, '')
+    }
+    setScriptsObj(targetObj)
+  }
+
   // Opens the debugger for a procedure call captured in the trace, with its parameters prefilled.
   const debugFromTrace = async (ev) => {
     const api = await go()
@@ -486,6 +598,9 @@ export default function WorkspaceView({
             incomingSql={incomingSql}
             active={isActive && view === 'query'}
             onOpenInQuery={openScriptInQuery}
+            onOpenTableDefinition={handleOpenTableDefinition}
+            onOpenTableRelations={handleOpenTableRelations}
+            onOpenTableScripts={handleOpenTableScripts}
           />
         </div>
       )}

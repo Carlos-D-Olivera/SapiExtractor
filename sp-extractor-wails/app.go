@@ -652,6 +652,18 @@ func (a *App) DeleteConnection(conn config.SavedConnection) error {
 	return config.DeleteConnection(conn)
 }
 
+// ---- AutoCompletes ----
+
+// LoadAutoCompletes returns the saved autocompletes snippets from ~/.spextractor/autocompletes.json.
+func (a *App) LoadAutoCompletes() ([]config.AutoCompleteItem, error) {
+	return config.LoadAutoCompletes()
+}
+
+// SaveAutoCompletes persists the autocompletes snippets to ~/.spextractor/autocompletes.json.
+func (a *App) SaveAutoCompletes(items []config.AutoCompleteItem) error {
+	return config.SaveAutoCompletes(items)
+}
+
 // ---- Helpers ----
 
 var illegalRunes = []string{"\\", "/", ":", "*", "?", "\"", "<", ">", "|"}

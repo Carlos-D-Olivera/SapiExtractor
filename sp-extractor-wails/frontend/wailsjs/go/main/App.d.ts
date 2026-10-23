@@ -44,6 +44,8 @@ export function ListDatabases(arg1:db.ConnInfo):Promise<Array<string>>;
 
 export function ListObjects(arg1:string,arg2:string,arg3:string,arg4:number):Promise<Array<db.DbObject>>;
 
+export function LoadAutoCompletes():Promise<Array<config.AutoCompleteItem>>;
+
 export function LoadConnections():Promise<Array<config.SavedConnection>>;
 
 export function OpenObject(arg1:string,arg2:db.DbObject):Promise<void>;
@@ -51,6 +53,8 @@ export function OpenObject(arg1:string,arg2:db.DbObject):Promise<void>;
 export function PickDirectory():Promise<string>;
 
 export function PrepareProcedureDebug(arg1:string,arg2:string,arg3:string):Promise<debug.Prefill>;
+
+export function SaveAutoCompletes(arg1:Array<config.AutoCompleteItem>):Promise<void>;
 
 export function SaveConnection(arg1:config.SavedConnection):Promise<void>;
 
