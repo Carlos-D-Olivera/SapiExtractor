@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   Plug, PlugZap
 } from 'lucide-react'
@@ -41,6 +41,35 @@ export default function App() {
   }, [loadSavedConns])
 
   const activeWs = workspaces.find(w => w.id === activeId) || workspaces[0]
+
+  const workspacesRef = useRef(workspaces)
+  workspacesRef.current = workspaces
+
+  const activeIdRef = useRef(activeId)
+  activeIdRef.current = activeId
+
+  // Switch workspaces with Ctrl+Tab (forward) and Ctrl+Shift+Tab (backward)
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'Tab' || e.code === 'Tab')) {
+        e.preventDefault()
+        e.stopPropagation()
+        if (showConnDialog) return
+
+        const currentList = workspacesRef.current
+        if (currentList.length <= 1) return
+
+        const currentActive = activeIdRef.current
+        const idx = currentList.findIndex(w => w.id === currentActive)
+        const step = e.shiftKey ? -1 : 1
+        const nextIdx = (idx === -1 ? 0 : (idx + step + currentList.length) % currentList.length)
+        setActiveId(currentList[nextIdx].id)
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown, { capture: true })
+    return () => window.removeEventListener('keydown', handleKeyDown, { capture: true })
+  }, [showConnDialog])
 
   // Add a new workspace up to a max of 5
   const handleAddWorkspace = () => {
@@ -137,7 +166,7 @@ export default function App() {
         </div>
 
         {/* ── Workspaces Tabs: 1, 2, + ── */}
-        <div className="flex items-center gap-1.5 ml-2 pl-3 border-l border-surface-600/60">
+        <div className="flex items-center gap-1.5 ml-2 pl-3 border-l border-surface-600/60" title="Espacios de trabajo (Ctrl+Tab para alternar)">
           {workspaces.map(ws => {
             const isAct = ws.id === activeId
             const isConn = !!ws.connInfo

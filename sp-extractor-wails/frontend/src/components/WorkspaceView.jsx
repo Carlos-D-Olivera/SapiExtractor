@@ -399,8 +399,8 @@ export default function WorkspaceView({
     setView('query')
   }
 
-  const handleOpenTableDefinition = async (tableRef) => {
-    if (!tableRef || !connInfo) return
+  const resolveTableOrObject = async (tableRef) => {
+    if (!tableRef || !connInfo) return null
     let schema = ''
     let tableName = tableRef
     if (tableRef.includes('.')) {
@@ -410,25 +410,36 @@ export default function WorkspaceView({
     }
 
     let targetObj = null
-    for (const o of knownRef.current.values()) {
-      if (o.type === 'TABLE' && o.name.toLowerCase() === tableName.toLowerCase()) {
-        if (!schema || o.schema.toLowerCase() === schema.toLowerCase()) {
-          targetObj = o
-          break
+    const priorityTypes = ['TABLE', 'VIEW', 'STORED_PROCEDURE', 'FUNCTION']
+    for (const t of priorityTypes) {
+      for (const o of knownRef.current.values()) {
+        if (o.type === t && o.name.toLowerCase() === tableName.toLowerCase()) {
+          if (!schema || (o.schema && o.schema.toLowerCase() === schema.toLowerCase())) {
+            targetObj = o
+            break
+          }
         }
       }
+      if (targetObj) break
     }
 
     if (!targetObj) {
       try {
         const api = await go()
-        const matches = await api.ListObjects(workspaceId, 'TABLE', tableName, 10)
-        if (matches && matches.length > 0) {
-          const exact = matches.find(m =>
-            m.name.toLowerCase() === tableName.toLowerCase() &&
-            (!schema || m.schema.toLowerCase() === schema.toLowerCase())
-          )
-          targetObj = exact || matches[0]
+        for (const t of priorityTypes) {
+          const matches = await api.ListObjects(workspaceId, t, tableName, 10)
+          if (matches && matches.length > 0) {
+            const exact = matches.find(m =>
+              m.name.toLowerCase() === tableName.toLowerCase() &&
+              (!schema || (m.schema && m.schema.toLowerCase() === schema.toLowerCase()))
+            )
+            if (exact) {
+              targetObj = exact
+              break
+            } else if (!targetObj) {
+              targetObj = matches[0]
+            }
+          }
         }
       } catch { /* ignore */ }
     }
@@ -440,20 +451,64 @@ export default function WorkspaceView({
         name: tableName,
       }
     }
+    return targetObj
+  }
+
+  const handleOpenTableDefinition = async (tableRef) => {
+    const targetObj = await resolveTableOrObject(tableRef)
+    if (!targetObj) return
 
     setView('objects')
+    setRelationsObj(null)
+    setScriptsObj(null)
+    setDebugObj(null)
+    if (objType !== targetObj.type) {
+      setObjType(targetObj.type)
+      setSearch('')
+      setFilteredCount(null)
+      setSelected(new Set())
+      setSelectingAll(false)
+      loadObjects(targetObj.type, connInfo, false, '')
+    }
+    handlePreview(targetObj)
+  }
+
+  const handleOpenTableRelations = async (tableRef) => {
+    const targetObj = await resolveTableOrObject(tableRef)
+    if (!targetObj) return
+
+    setView('objects')
+    setPreviewObj(null)
+    setScriptsObj(null)
+    setDebugObj(null)
     if (objType !== 'TABLE') {
       setObjType('TABLE')
       setSearch('')
       setFilteredCount(null)
       setSelected(new Set())
       setSelectingAll(false)
-      setRelationsObj(null)
-      setScriptsObj(null)
-      setDebugObj(null)
       loadObjects('TABLE', connInfo, false, '')
     }
-    handlePreview(targetObj)
+    setRelationsObj(targetObj)
+  }
+
+  const handleOpenTableScripts = async (tableRef) => {
+    const targetObj = await resolveTableOrObject(tableRef)
+    if (!targetObj) return
+
+    setView('objects')
+    setPreviewObj(null)
+    setRelationsObj(null)
+    setDebugObj(null)
+    if (objType !== 'TABLE') {
+      setObjType('TABLE')
+      setSearch('')
+      setFilteredCount(null)
+      setSelected(new Set())
+      setSelectingAll(false)
+      loadObjects('TABLE', connInfo, false, '')
+    }
+    setScriptsObj(targetObj)
   }
 
   // Opens the debugger for a procedure call captured in the trace, with its parameters prefilled.
@@ -544,6 +599,8 @@ export default function WorkspaceView({
             active={isActive && view === 'query'}
             onOpenInQuery={openScriptInQuery}
             onOpenTableDefinition={handleOpenTableDefinition}
+            onOpenTableRelations={handleOpenTableRelations}
+            onOpenTableScripts={handleOpenTableScripts}
           />
         </div>
       )}

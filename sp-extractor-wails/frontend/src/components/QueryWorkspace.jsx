@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
-import { Play, Plus, X, Loader2, AlertCircle, Ban, Clock, Table2, Trash2, Sparkles, FileCode2, PanelBottomClose, PanelBottomOpen } from 'lucide-react'
+import { Play, Plus, X, Loader2, AlertCircle, Ban, Clock, Table2, Trash2, Sparkles, FileCode2, PanelBottomClose, PanelBottomOpen, Check } from 'lucide-react'
 import clsx from 'clsx'
 import SqlEditor, { getIdentifierAtCursor, stripQuotes } from './SqlEditor'
 import AutocompletesModal, { getStoredAutocompletes, loadStoredAutocompletes, saveStoredAutocompletes } from './AutocompletesModal'
@@ -51,7 +51,17 @@ function buildSchema(columns) {
   return schema
 }
 
-export default function QueryWorkspace({ workspaceId = '1', connLabel, dbType, incomingSql, active: visible, onOpenInQuery, onOpenTableDefinition }) {
+export default function QueryWorkspace({
+  workspaceId = '1',
+  connLabel,
+  dbType,
+  incomingSql,
+  active: visible,
+  onOpenInQuery,
+  onOpenTableDefinition,
+  onOpenTableRelations,
+  onOpenTableScripts,
+}) {
   const [tabs, setTabs] = useState(() => [newTab()])
   const [activeId, setActiveId] = useState(() => tabs[0].id)
   const [insertTarget, setInsertTarget] = useState(null)
@@ -281,6 +291,84 @@ export default function QueryWorkspace({ workspaceId = '1', connLabel, dbType, i
   const onOpenTableDefinitionRef = useRef(onOpenTableDefinition)
   onOpenTableDefinitionRef.current = onOpenTableDefinition
 
+  const onOpenTableRelationsRef = useRef(onOpenTableRelations)
+  onOpenTableRelationsRef.current = onOpenTableRelations
+
+  const onOpenTableScriptsRef = useRef(onOpenTableScripts)
+  onOpenTableScriptsRef.current = onOpenTableScripts
+
+  const [copyToast, setCopyToast] = useState('')
+
+  const openQueryInNewTab = useCallback((sqlText, tabTitle, autoRun = false) => {
+    const t = { ...newTab(), sql: sqlText, title: tabTitle || 'Consulta' }
+    setTabs(prev => [...prev, t])
+    setActiveId(t.id)
+    if (autoRun) {
+      setTimeout(() => {
+        runQueryRef.current?.(t, sqlText)
+      }, 60)
+    }
+  }, [])
+
+  const handleSelectTop100 = useCallback((target) => {
+    if (!target) return
+    const clean = stripQuotes(target)
+    let sqlText = ''
+    if (dbType === 'SQL_SERVER') {
+      sqlText = `SELECT TOP 100 * FROM ${clean};`
+    } else {
+      sqlText = `SELECT * FROM ${clean} LIMIT 100;`
+    }
+    openQueryInNewTab(sqlText, `TOP 100 ${clean}`, true)
+  }, [dbType, openQueryInNewTab])
+
+  const handleGenerateScript = useCallback(async (target, scriptId) => {
+    if (!target) return
+    const clean = stripQuotes(target)
+    let schema = ''
+    let tableName = clean
+    if (clean.includes('.')) {
+      const parts = clean.split('.')
+      schema = parts[0]
+      tableName = parts.slice(1).join('.')
+    } else {
+      schema = dbType === 'POSTGRESQL' ? 'public' : 'dbo'
+    }
+
+    try {
+      const api = await go()
+      const list = await api.GenerateTableScripts(workspaceId, schema, tableName)
+      if (list && list.length > 0) {
+        const found = list.find(s => s.id === scriptId) || list[0]
+        openQueryInNewTab(found.sql, `${tableName} (${found.label})`, false)
+      } else {
+        openQueryInNewTab(`-- No se pudieron generar scripts para ${clean}`, clean, false)
+      }
+    } catch (e) {
+      console.error(e)
+    }
+  }, [workspaceId, dbType, openQueryInNewTab])
+
+  const handleCopyName = useCallback((target) => {
+    if (!target) return
+    const clean = stripQuotes(target)
+    try {
+      navigator.clipboard?.writeText(clean)
+      setCopyToast(`Copiado: ${clean}`)
+      setTimeout(() => setCopyToast(''), 1800)
+    } catch { /* ignore */ }
+  }, [])
+
+  const getTargetIdentifier = useCallback(() => {
+    let text = currentSelection()
+    if (!text && editorRef.current) {
+      const view = editorRef.current
+      const { head } = view.state.selection.main
+      text = getIdentifierAtCursor(view.state, head)
+    }
+    return text ? stripQuotes(text) : ''
+  }, [])
+
   // F5 executes query; Ctrl+N opens a new query tab (prevents WebView2 reload / new window)
   useEffect(() => {
     if (!visible) return
@@ -296,27 +384,31 @@ export default function QueryWorkspace({ workspaceId = '1', connLabel, dbType, i
       } else if ((e.ctrlKey || e.metaKey) && (e.key === 'n' || e.key === 'N')) {
         e.preventDefault()
         addTabRef.current?.()
-      } else if ((e.ctrlKey || e.metaKey) && (e.key === 'r' || e.key === 'R')) {
+      } else if ((e.ctrlKey || e.metaKey) && !e.shiftKey && (e.key === 'r' || e.key === 'R')) {
         e.preventDefault()
         toggleResultsRef.current?.()
+      } else if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 't' || e.key === 'T')) {
+        e.preventDefault()
+        const target = getTargetIdentifier()
+        if (target) handleSelectTop100(target)
+      } else if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'r' || e.key === 'R')) {
+        e.preventDefault()
+        const target = getTargetIdentifier()
+        if (target) onOpenTableRelationsRef.current?.(target)
+      } else if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'c' || e.key === 'C')) {
+        e.preventDefault()
+        const target = getTargetIdentifier()
+        if (target) handleCopyName(target)
       } else if (e.altKey && (e.key === 'F1' || e.code === 'F1')) {
         e.preventDefault()
-        let text = currentSelection()
-        if (!text && editorRef.current) {
-          const view = editorRef.current
-          const { head } = view.state.selection.main
-          text = getIdentifierAtCursor(view.state, head)
-        }
-        if (text) {
-          const clean = stripQuotes(text)
-          if (clean) onOpenTableDefinitionRef.current?.(clean)
-        }
+        const target = getTargetIdentifier()
+        if (target) onOpenTableDefinitionRef.current?.(target)
       }
     }
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [visible])
+  }, [visible, getTargetIdentifier, handleSelectTop100, handleCopyName])
 
   return (
     <div ref={workspaceRef} className="flex-1 flex flex-col overflow-hidden">
@@ -472,6 +564,11 @@ export default function QueryWorkspace({ workspaceId = '1', connLabel, dbType, i
                 viewRef={editorRef}
                 onRun={selection => runQuery(active, selection)}
                 onAltF1={table => onOpenTableDefinition?.(table)}
+                onSelectTop100={handleSelectTop100}
+                onOpenRelations={table => onOpenTableRelations?.(table)}
+                onOpenScripts={table => onOpenTableScripts?.(table)}
+                onGenerateScript={handleGenerateScript}
+                onCopyName={handleCopyName}
                 onToggleResults={toggleResults}
               />
             </div>
@@ -506,6 +603,14 @@ export default function QueryWorkspace({ workspaceId = '1', connLabel, dbType, i
           onClose={() => setInsertTarget(null)}
           onOpenInQuery={onOpenInQuery}
         />
+      )}
+
+      {/* Copy Toast feedback */}
+      {copyToast && (
+        <div className="fixed bottom-4 right-4 z-50 bg-[#18191a] border border-brand/70 text-white text-xs px-3 py-1.5 rounded-lg shadow-xl flex items-center gap-2 pointer-events-none transition-all">
+          <Check className="w-3.5 h-3.5 text-emerald-400" />
+          <span>{copyToast}</span>
+        </div>
       )}
     </div>
   )

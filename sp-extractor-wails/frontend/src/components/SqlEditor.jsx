@@ -1,7 +1,8 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { basicSetup } from 'codemirror'
 import { EditorView, keymap, MatchDecorator, Decoration, ViewPlugin, lineNumbers } from '@codemirror/view'
 import { Compartment, EditorState, EditorSelection, Prec } from '@codemirror/state'
+import SqlContextMenu from './SqlContextMenu'
 import {
   sql,
   MSSQL,
@@ -353,6 +354,11 @@ export default function SqlEditor({
   autocompletes,
   onRun,
   onAltF1,
+  onSelectTop100,
+  onOpenRelations,
+  onOpenScripts,
+  onGenerateScript,
+  onCopyName,
   onToggleResults,
   viewRef,
   fontSize = 12,
@@ -364,14 +370,26 @@ export default function SqlEditor({
   const onChangeRef = useRef(onChange)
   const onRunRef = useRef(onRun)
   const onAltF1Ref = useRef(onAltF1)
+  const onSelectTop100Ref = useRef(onSelectTop100)
+  const onOpenRelationsRef = useRef(onOpenRelations)
+  const onOpenScriptsRef = useRef(onOpenScripts)
+  const onGenerateScriptRef = useRef(onGenerateScript)
+  const onCopyNameRef = useRef(onCopyName)
   const onToggleResultsRef = useRef(onToggleResults)
   const autocompletesRef = useRef(autocompletes)
 
   onChangeRef.current = onChange
   onRunRef.current = onRun
   onAltF1Ref.current = onAltF1
+  onSelectTop100Ref.current = onSelectTop100
+  onOpenRelationsRef.current = onOpenRelations
+  onOpenScriptsRef.current = onOpenScripts
+  onGenerateScriptRef.current = onGenerateScript
+  onCopyNameRef.current = onCopyName
   onToggleResultsRef.current = onToggleResults
   autocompletesRef.current = autocompletes
+
+  const [contextMenu, setContextMenu] = useState(null)
 
   useEffect(() => {
     const customKeys = Prec.highest(keymap.of([{
@@ -397,6 +415,48 @@ export default function SqlEditor({
           const clean = stripQuotes(text)
           if (clean) {
             onAltF1Ref.current?.(clean)
+            return true
+          }
+        }
+        return false
+      },
+    }, {
+      key: 'Mod-Shift-t',
+      run: (view) => {
+        const { from, to, head } = view.state.selection.main
+        let text = from !== to ? view.state.sliceDoc(from, to).trim() : getIdentifierAtCursor(view.state, head)
+        if (text) {
+          const clean = stripQuotes(text)
+          if (clean) {
+            onSelectTop100Ref.current?.(clean)
+            return true
+          }
+        }
+        return false
+      },
+    }, {
+      key: 'Mod-Shift-r',
+      run: (view) => {
+        const { from, to, head } = view.state.selection.main
+        let text = from !== to ? view.state.sliceDoc(from, to).trim() : getIdentifierAtCursor(view.state, head)
+        if (text) {
+          const clean = stripQuotes(text)
+          if (clean) {
+            onOpenRelationsRef.current?.(clean)
+            return true
+          }
+        }
+        return false
+      },
+    }, {
+      key: 'Mod-Shift-c',
+      run: (view) => {
+        const { from, to, head } = view.state.selection.main
+        let text = from !== to ? view.state.sliceDoc(from, to).trim() : getIdentifierAtCursor(view.state, head)
+        if (text) {
+          const clean = stripQuotes(text)
+          if (clean) {
+            onCopyNameRef.current?.(clean)
             return true
           }
         }
@@ -491,6 +551,30 @@ export default function SqlEditor({
           fontSizeComp.current.of(makeFontSizeTheme(fontSize || 12)),
           oneDark,
           theme,
+          EditorView.domEventHandlers({
+            contextmenu: (event, view) => {
+              event.preventDefault()
+              const pos = view.posAtCoords({ x: event.clientX, y: event.clientY })
+              let target = ''
+              if (pos != null) {
+                const { from, to } = view.state.selection.main
+                const isInsideSelection = from !== to && pos >= from && pos <= to
+                if (isInsideSelection) {
+                  target = view.state.sliceDoc(from, to).trim()
+                } else {
+                  view.dispatch({ selection: EditorSelection.cursor(pos) })
+                  target = getIdentifierAtCursor(view.state, pos)
+                }
+              }
+              const clean = stripQuotes(target)
+              setContextMenu({
+                x: event.clientX,
+                y: event.clientY,
+                target: clean,
+              })
+              return true
+            },
+          }),
           EditorView.updateListener.of(u => {
             if (u.docChanged) onChangeRef.current?.(u.state.doc.toString())
           }),
@@ -534,5 +618,23 @@ export default function SqlEditor({
     }
   }, [fontSize, viewRef])
 
-  return <div ref={host} className="h-full w-full" style={{ fontSize: `${fontSize || 12}px` }} />
+  return (
+    <>
+      <div ref={host} className="h-full w-full" style={{ fontSize: `${fontSize || 12}px` }} />
+      {contextMenu && (
+        <SqlContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          target={contextMenu.target}
+          onClose={() => setContextMenu(null)}
+          onAltF1={(tbl) => onAltF1Ref.current?.(tbl)}
+          onSelectTop100={(tbl) => onSelectTop100Ref.current?.(tbl)}
+          onOpenRelations={(tbl) => onOpenRelationsRef.current?.(tbl)}
+          onOpenScripts={(tbl) => onOpenScriptsRef.current?.(tbl)}
+          onGenerateScript={(tbl, scriptId) => onGenerateScriptRef.current?.(tbl, scriptId)}
+          onCopyName={(tbl) => onCopyNameRef.current?.(tbl)}
+        />
+      )}
+    </>
+  )
 }
