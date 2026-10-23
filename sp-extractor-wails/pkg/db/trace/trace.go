@@ -69,20 +69,64 @@ var ErrNoPermission = errors.New("el usuario no tiene permiso ALTER ANY EVENT SE
 
 // Start creates and starts an event session filtered to dbName.
 func Start(ctx context.Context, conn *sql.DB, dbName, appName string, opts Options) (*Tracer, error) {
-	var rnd [4]byte
-	if _, err := rand.Read(rnd[:]); err != nil {
+	name, err := NewSessionName("")
+	if err != nil {
 		return nil, err
 	}
-	name := SessionPrefix + hex.EncodeToString(rnd[:])
+	if err := CreateAndStart(ctx, conn, name, buildCreateSQL(name, dbName, appName, opts)); err != nil {
+		return nil, err
+	}
+	return &Tracer{Name: name, seen: map[string]bool{}}, nil
+}
 
-	if _, err := conn.ExecContext(ctx, buildCreateSQL(name, dbName, appName, opts)); err != nil {
-		return nil, wrapPermission(err)
+// NewSessionName returns a unique event-session name that Drop and Cleanup
+// accept. tag (lowercase letters/digits) is optional and identifies the feature.
+func NewSessionName(tag string) (string, error) {
+	var rnd [4]byte
+	if _, err := rand.Read(rnd[:]); err != nil {
+		return "", err
+	}
+	name := SessionPrefix
+	if tag != "" {
+		name += tag + "_"
+	}
+	name += hex.EncodeToString(rnd[:])
+	if !validName(name) {
+		return "", fmt.Errorf("nombre de sesión inválido: %q", name)
+	}
+	return name, nil
+}
+
+// CreateAndStart runs the CREATE EVENT SESSION statement ddl for name and
+// starts the session. The session is dropped again if it cannot be started.
+func CreateAndStart(ctx context.Context, conn *sql.DB, name, ddl string) error {
+	if !validName(name) {
+		return fmt.Errorf("nombre de sesión inválido: %q", name)
+	}
+	if _, err := conn.ExecContext(ctx, ddl); err != nil {
+		return wrapPermission(err)
 	}
 	if _, err := conn.ExecContext(ctx, fmt.Sprintf("ALTER EVENT SESSION [%s] ON SERVER STATE = START", name)); err != nil {
 		_ = Drop(context.Background(), conn, name)
-		return nil, wrapPermission(err)
+		return wrapPermission(err)
 	}
-	return &Tracer{Name: name, seen: map[string]bool{}}, nil
+	return nil
+}
+
+// ReadRingBuffer returns the raw XML of the session's ring_buffer target.
+func ReadRingBuffer(ctx context.Context, conn *sql.DB, name string) (string, error) {
+	var data sql.NullString
+	err := conn.QueryRowContext(ctx, `SELECT CAST(t.target_data AS NVARCHAR(MAX))
+		FROM sys.dm_xe_sessions s
+		INNER JOIN sys.dm_xe_session_targets t ON t.event_session_address = s.address
+		WHERE s.name = @p1 AND t.target_name = N'ring_buffer'`, name).Scan(&data)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", errors.New("la sesión de traza ya no existe en el servidor (¿fue detenida?)")
+	}
+	if err != nil {
+		return "", wrapPermission(err)
+	}
+	return data.String, nil
 }
 
 // Drop removes an event session (stopping it first if it is running).
@@ -130,21 +174,14 @@ func Cleanup(ctx context.Context, conn *sql.DB) (int, error) {
 
 // Poll reads the ring buffer and returns the events that appeared since the last call.
 func (t *Tracer) Poll(ctx context.Context, conn *sql.DB) ([]Event, error) {
-	var data sql.NullString
-	err := conn.QueryRowContext(ctx, `SELECT CAST(t.target_data AS NVARCHAR(MAX))
-		FROM sys.dm_xe_sessions s
-		INNER JOIN sys.dm_xe_session_targets t ON t.event_session_address = s.address
-		WHERE s.name = @p1 AND t.target_name = N'ring_buffer'`, t.Name).Scan(&data)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, errors.New("la sesión de traza ya no existe en el servidor (¿fue detenida?)")
-	}
+	doc, err := ReadRingBuffer(ctx, conn, t.Name)
 	if err != nil {
-		return nil, wrapPermission(err)
+		return nil, err
 	}
-	if !data.Valid || data.String == "" {
+	if doc == "" {
 		return nil, nil
 	}
-	events, err := ParseRingBuffer(data.String)
+	events, err := ParseRingBuffer(doc)
 	if err != nil {
 		return nil, err
 	}

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import {
   Play, Square, Pause, Eraser, Search, Loader2, AlertCircle, ShieldAlert, Copy, Check,
-  Terminal, ArrowDownToLine, Trash2,
+  Terminal, ArrowDownToLine, Trash2, Bug,
 } from 'lucide-react'
 import clsx from 'clsx'
 
@@ -42,7 +42,23 @@ function fmtTime(iso) {
 
 const oneLine = (s) => (s || '').replace(/\s+/g, ' ').trim()
 
-export default function TracePanel({ workspaceId, connInfo, active, onOpenInQuery }) {
+// RPC calls made by drivers to run prepared statements or cursors are not user procedures.
+const DRIVER_PROCS = new Set([
+  'sp_executesql', 'sp_prepare', 'sp_execute', 'sp_prepexec', 'sp_prepexecrpc', 'sp_unprepare', 'sp_reset_connection',
+  'sp_describe_first_result_set', 'sp_describe_undeclared_parameters',
+])
+const BATCH_EXEC = /^\s*(?:--[^\n]*\n\s*|\/\*[\s\S]*?\*\/\s*)*exec(?:ute)?\s+[[\w@]/i
+
+// True when the captured event is a call to a stored procedure that can be sent to the debugger.
+function isProcCall(e) {
+  if (e.kind === 'rpc' && e.object) {
+    const n = e.object.toLowerCase()
+    return !DRIVER_PROCS.has(n) && !n.startsWith('sp_cursor')
+  }
+  return e.kind === 'batch' && BATCH_EXEC.test(e.text || '')
+}
+
+export default function TracePanel({ workspaceId, connInfo, active, onOpenInQuery, onDebugProc }) {
   const [running, setRunning] = useState(false)
   const [starting, setStarting] = useState(false)
   const [paused, setPaused] = useState(false)
@@ -167,6 +183,16 @@ export default function TracePanel({ workspaceId, connInfo, active, onOpenInQuer
   }, [events, text, onlyErrors])
 
   const selected = useMemo(() => events.find(e => e.seq === selectedSeq) || null, [events, selectedSeq])
+
+  const debugSelected = async () => {
+    if (!selected || !onDebugProc) return
+    setError('')
+    try {
+      await onDebugProc(selected)
+    } catch (e) {
+      setError(e.toString())
+    }
+  }
 
   const copySelected = async () => {
     if (!selected) return
@@ -319,6 +345,13 @@ export default function TracePanel({ workspaceId, connInfo, active, onOpenInQuer
             {selected.kind === 'error' && <span className="text-red-300">· Error {selected.errorNumber} (sev. {selected.severity}): {selected.object}</span>}
             <span>· {selected.login || '—'}@{selected.host || '—'} · SPID {selected.sessionId}</span>
             <div className="flex-1" />
+            {onDebugProc && isProcCall(selected) && (
+              <button onClick={debugSelected} className="btn-secondary text-[11px] py-1 px-2"
+                      title="Abre el depurador con los parámetros de esta llamada">
+                <Bug className="w-3 h-3" />
+                Depurar
+              </button>
+            )}
             <button onClick={copySelected} className="btn-secondary text-[11px] py-1 px-2">
               {copied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
               Copiar

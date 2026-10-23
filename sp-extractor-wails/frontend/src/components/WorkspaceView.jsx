@@ -10,6 +10,8 @@ import ObjectTable from './ObjectTable'
 import ExportBar from './ExportBar'
 import PreviewPanel from './PreviewPanel'
 import TracePanel from './TracePanel'
+import DebugPanel from './DebugPanel'
+import ErrorBoundary from './ErrorBoundary'
 import QueryWorkspace from './QueryWorkspace'
 import RelationsPanel from './RelationsPanel'
 import ScriptsPanel from './ScriptsPanel'
@@ -83,6 +85,10 @@ export default function WorkspaceView({
   const [previewError, setPreviewError] = useState('')
   const [relationsObj, setRelationsObj] = useState(null)
   const [scriptsObj, setScriptsObj] = useState(null)
+  const [debugObj, setDebugObj] = useState(null)
+  const [debugInit, setDebugInit] = useState(null)    // prefilled arguments (from the trace)
+  const [debugFrom, setDebugFrom] = useState('explorer')
+  const [debugKey, setDebugKey] = useState(0)
   const [incomingSql, setIncomingSql] = useState(null)
   const [connSeq, setConnSeq] = useState(0)
 
@@ -218,6 +224,7 @@ export default function WorkspaceView({
         setPreviewError('')
         setRelationsObj(null)
         setScriptsObj(null)
+        setDebugObj(null)
         loadObjects('STORED_PROCEDURE', connInfo)
       } else {
         cacheRef.current.clear()
@@ -237,6 +244,7 @@ export default function WorkspaceView({
         setPreviewError('')
         setRelationsObj(null)
         setScriptsObj(null)
+        setDebugObj(null)
       }
     }
   }, [connInfo, loadObjects])
@@ -259,6 +267,7 @@ export default function WorkspaceView({
     setPreviewDef('')
     setRelationsObj(null)
     setScriptsObj(null)
+    setDebugObj(null)
     loadObjects(type, connInfo, false, '')
   }
 
@@ -390,6 +399,30 @@ export default function WorkspaceView({
     setView('query')
   }
 
+  // Opens the debugger for a procedure call captured in the trace, with its parameters prefilled.
+  const debugFromTrace = async (ev) => {
+    const api = await go()
+    const pre = await api.PrepareProcedureDebug(workspaceId, ev.object || '', ev.text || '')
+    setView('objects')
+    handleTypeChange('STORED_PROCEDURE')
+    setDebugInit({ args: pre.args || [], parsed: pre.parsed })
+    setDebugFrom('trace')
+    setDebugKey(k => k + 1)
+    setDebugObj({ type: 'STORED_PROCEDURE', schema: pre.schema, name: pre.name })
+  }
+
+  const openDebugFromExplorer = (obj) => {
+    setDebugInit(null)
+    setDebugFrom('explorer')
+    setDebugKey(k => k + 1)
+    setDebugObj(obj)
+  }
+
+  const closeDebug = () => {
+    setDebugObj(null)
+    if (debugFrom === 'trace') setView('trace')
+  }
+
   const openTableFromRelations = (schema, name) => {
     setRelationsObj(null)
     setObjType('TABLE')
@@ -466,6 +499,7 @@ export default function WorkspaceView({
             connInfo={connInfo}
             active={isActive && view === 'trace'}
             onOpenInQuery={openScriptInQuery}
+            onDebugProc={debugFromTrace}
           />
         </div>
       )}
@@ -568,6 +602,17 @@ export default function WorkspaceView({
                       <Loader2 className="w-5 h-5 animate-spin text-brand-light" />
                       <span className="text-sm">Loading…</span>
                     </div>
+                  ) : debugObj ? (
+                    <ErrorBoundary title="Error en el panel de depuración" onReset={closeDebug}>
+                      <DebugPanel
+                        key={debugKey}
+                        workspaceId={workspaceId}
+                        obj={debugObj}
+                        initial={debugInit}
+                        onBack={closeDebug}
+                        onOpenInQuery={openScriptInQuery}
+                      />
+                    </ErrorBoundary>
                   ) : scriptsObj ? (
                     <ScriptsPanel
                       workspaceId={workspaceId}
@@ -592,6 +637,9 @@ export default function WorkspaceView({
                       error={previewError}
                       onRefresh={() => { defCacheRef.current.delete(objKey(previewObj)); handlePreview(previewObj) }}
                       onBack={closePreview}
+                      onDebug={previewObj.type === 'STORED_PROCEDURE' && connInfo?.dbType === 'SQL_SERVER'
+                        ? () => openDebugFromExplorer(previewObj)
+                        : undefined}
                       onEdit={['STORED_PROCEDURE', 'FUNCTION', 'VIEW', 'TRIGGER'].includes(previewObj.type)
                         ? () => openScriptInQuery(previewDef, previewObj.name)
                         : undefined}

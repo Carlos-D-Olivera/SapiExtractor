@@ -22,6 +22,10 @@ export function CountObjects(arg1, arg2, arg3) {
   return window['go']['main']['App']['CountObjects'](arg1, arg2, arg3);
 }
 
+export function DebugProcedure(arg1, arg2) {
+  return window['go']['main']['App']['DebugProcedure'](arg1, arg2);
+}
+
 export function DeleteConnection(arg1) {
   return window['go']['main']['App']['DeleteConnection'](arg1);
 }
@@ -54,6 +58,10 @@ export function GetObjectText(arg1, arg2) {
   return window['go']['main']['App']['GetObjectText'](arg1, arg2);
 }
 
+export function GetProcParameters(arg1, arg2, arg3) {
+  return window['go']['main']['App']['GetProcParameters'](arg1, arg2, arg3);
+}
+
 export function GetSchemaModel(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['GetSchemaModel'](arg1, arg2, arg3, arg4);
 }
@@ -80,6 +88,10 @@ export function OpenObject(arg1, arg2) {
 
 export function PickDirectory() {
   return window['go']['main']['App']['PickDirectory']();
+}
+
+export function PrepareProcedureDebug(arg1, arg2, arg3) {
+  return window['go']['main']['App']['PrepareProcedureDebug'](arg1, arg2, arg3);
 }
 
 export function SaveConnection(arg1) {

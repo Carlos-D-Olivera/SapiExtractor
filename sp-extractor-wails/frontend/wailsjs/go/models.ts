@@ -202,6 +202,333 @@ export namespace db {
 
 }
 
+export namespace debug {
+	
+	export class Arg {
+	    name: string;
+	    value: string;
+	    isNull: boolean;
+	    useDefault: boolean;
+	    output: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new Arg(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.value = source["value"];
+	        this.isNull = source["isNull"];
+	        this.useDefault = source["useDefault"];
+	        this.output = source["output"];
+	    }
+	}
+	export class Message {
+	    kind: string;
+	    text: string;
+	    number: number;
+	    line: number;
+	    proc: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Message(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.kind = source["kind"];
+	        this.text = source["text"];
+	        this.number = source["number"];
+	        this.line = source["line"];
+	        this.proc = source["proc"];
+	    }
+	}
+	export class NameValue {
+	    name: string;
+	    value?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new NameValue(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.value = source["value"];
+	    }
+	}
+	export class Param {
+	    name: string;
+	    type: string;
+	    isOutput: boolean;
+	    hasDefault: boolean;
+	    unsupported: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new Param(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.type = source["type"];
+	        this.isOutput = source["isOutput"];
+	        this.hasDefault = source["hasDefault"];
+	        this.unsupported = source["unsupported"];
+	    }
+	}
+	export class ParamInput {
+	    name: string;
+	    value: string;
+	    isNull: boolean;
+	    useDefault: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new ParamInput(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.value = source["value"];
+	        this.isNull = source["isNull"];
+	        this.useDefault = source["useDefault"];
+	    }
+	}
+	export class Prefill {
+	    schema: string;
+	    name: string;
+	    args: Arg[];
+	    parsed: boolean;
+	    candidates: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new Prefill(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.schema = source["schema"];
+	        this.name = source["name"];
+	        this.args = this.convertValues(source["args"], Arg);
+	        this.parsed = source["parsed"];
+	        this.candidates = source["candidates"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class Request {
+	    schema: string;
+	    name: string;
+	    params: ParamInput[];
+	    rollback: boolean;
+	    maxRows: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new Request(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.schema = source["schema"];
+	        this.name = source["name"];
+	        this.params = this.convertValues(source["params"], ParamInput);
+	        this.rollback = source["rollback"];
+	        this.maxRows = source["maxRows"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class ResultSet {
+	    columns: string[];
+	    types: string[];
+	    rows: string[][];
+	    truncated: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new ResultSet(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.columns = source["columns"];
+	        this.types = source["types"];
+	        this.rows = source["rows"];
+	        this.truncated = source["truncated"];
+	    }
+	}
+	export class Source {
+	    key: string;
+	    name: string;
+	    text: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Source(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.key = source["key"];
+	        this.name = source["name"];
+	        this.text = source["text"];
+	    }
+	}
+	export class Step {
+	    seq: number;
+	    kind: string;
+	    object: string;
+	    sourceKey: string;
+	    level: number;
+	    line: number;
+	    endLine: number;
+	    text: string;
+	    durationUs: number;
+	    cpuUs: number;
+	    reads: number;
+	    writes: number;
+	    rows: number;
+	    count: number;
+	    branch: string;
+	    note: string;
+	    errorNumber: number;
+	    severity: number;
+	    children: Step[];
+	
+	    static createFrom(source: any = {}) {
+	        return new Step(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.seq = source["seq"];
+	        this.kind = source["kind"];
+	        this.object = source["object"];
+	        this.sourceKey = source["sourceKey"];
+	        this.level = source["level"];
+	        this.line = source["line"];
+	        this.endLine = source["endLine"];
+	        this.text = source["text"];
+	        this.durationUs = source["durationUs"];
+	        this.cpuUs = source["cpuUs"];
+	        this.reads = source["reads"];
+	        this.writes = source["writes"];
+	        this.rows = source["rows"];
+	        this.count = source["count"];
+	        this.branch = source["branch"];
+	        this.note = source["note"];
+	        this.errorNumber = source["errorNumber"];
+	        this.severity = source["severity"];
+	        this.children = this.convertValues(source["children"], Step);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class Result {
+	    steps: Step[];
+	    sources: Source[];
+	    sets: ResultSet[];
+	    messages: Message[];
+	    returnValue?: string;
+	    outputs: NameValue[];
+	    failed: boolean;
+	    rolledBack: boolean;
+	    durationMs: number;
+	    stepCount: number;
+	    notes: string[];
+	    batch: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Result(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.steps = this.convertValues(source["steps"], Step);
+	        this.sources = this.convertValues(source["sources"], Source);
+	        this.sets = this.convertValues(source["sets"], ResultSet);
+	        this.messages = this.convertValues(source["messages"], Message);
+	        this.returnValue = source["returnValue"];
+	        this.outputs = this.convertValues(source["outputs"], NameValue);
+	        this.failed = source["failed"];
+	        this.rolledBack = source["rolledBack"];
+	        this.durationMs = source["durationMs"];
+	        this.stepCount = source["stepCount"];
+	        this.notes = source["notes"];
+	        this.batch = source["batch"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+	
+
+}
+
 export namespace main {
 	
 	export class ExportRequest {

@@ -1,8 +1,8 @@
 import { useState } from 'react'
-import { ArrowLeft, RefreshCw, Copy, Save, ExternalLink, Loader2, AlertCircle, Check, Pencil } from 'lucide-react'
+import { ArrowLeft, RefreshCw, Copy, Save, ExternalLink, Loader2, AlertCircle, Check, Pencil, Bug } from 'lucide-react'
 import clsx from 'clsx'
 
-export default function PreviewPanel({ workspaceId = '1', obj, typeLabel, definition, loading, error, onRefresh, onBack, onEdit }) {
+export default function PreviewPanel({ workspaceId = '1', obj, typeLabel, definition, loading, error, onRefresh, onBack, onEdit, onDebug }) {
   const [copied, setCopied] = useState(false)
   const [actionError, setActionError] = useState('')
   const [busy, setBusy] = useState('') // 'copy' | 'save' | 'open'
@@ -104,6 +104,12 @@ export default function PreviewPanel({ workspaceId = '1', obj, typeLabel, defini
           {busy === 'save' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
           Guardar como
         </button>
+        {onDebug && (
+          <button onClick={onDebug} disabled={loading} className="btn-secondary text-xs py-1.5 px-3" title="Ejecutar el procedimiento y ver qué sentencias, ramas y procedimientos anidados se ejecutaron">
+            <Bug className="w-3.5 h-3.5" />
+            Depurar
+          </button>
+        )}
         {onEdit && (
           <button onClick={onEdit} disabled={loading || !definition} className="btn-secondary text-xs py-1.5 px-3" title="Abrir la definición en una pestaña de Consultas para editarla">
             <Pencil className="w-3.5 h-3.5" />

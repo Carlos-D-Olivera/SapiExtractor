@@ -9,6 +9,11 @@ import (
 	"sp-extractor-wails/pkg/db"
 )
 
+// FormatSQLType renders a SQL Server type name with its length/precision, e.g. nvarchar(50).
+func FormatSQLType(typeName string, maxLen, prec, scale int) string {
+	return formatSQLType(typeName, maxLen, prec, scale)
+}
+
 // outgoingFKs filters the database-wide FK list down to the ones declared on the table.
 func outgoingFKs(all []db.ForeignKey, schema, table string) []db.ForeignKey {
 	var out []db.ForeignKey
