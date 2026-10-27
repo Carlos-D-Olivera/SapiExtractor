@@ -14,7 +14,7 @@ import {
 } from '@codemirror/lang-sql'
 import { LanguageSupport } from '@codemirror/language'
 import { acceptCompletion, closeCompletion, completionStatus } from '@codemirror/autocomplete'
-import { insertNewlineAndIndent } from '@codemirror/commands'
+import { insertNewlineAndIndent, addCursorAbove, addCursorBelow, copyLineDown, copyLineUp } from '@codemirror/commands'
 import { oneDark } from '@codemirror/theme-one-dark'
 
 // Dialects with case-insensitive identifiers so names aren't auto-quoted
@@ -392,7 +392,23 @@ export default function SqlEditor({
   const [contextMenu, setContextMenu] = useState(null)
 
   useEffect(() => {
-    const customKeys = Prec.highest(keymap.of([{
+    const customKeys = Prec.highest(keymap.of([
+      {
+        key: 'Shift-Alt-ArrowDown',
+        run: addCursorBelow,
+      },
+      {
+        key: 'Shift-Alt-ArrowUp',
+        run: addCursorAbove,
+      },
+      {
+        key: 'Mod-Alt-ArrowDown',
+        run: copyLineDown,
+      },
+      {
+        key: 'Mod-Alt-ArrowUp',
+        run: copyLineUp,
+      },{
       key: 'F5',
       run: (view) => {
         const { from, to } = view.state.selection.main
