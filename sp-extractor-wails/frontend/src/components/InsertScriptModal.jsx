@@ -39,7 +39,7 @@ function fileSafe(name) {
   return (name || 'resultado').replace(/[^\w.-]+/g, '_')
 }
 
-export default function InsertScriptModal({ set, sql, dbType, onClose, onOpenInQuery }) {
+export default function InsertScriptModal({ workspaceId = '1', set, sql, dbType, onClose, onOpenInQuery }) {
   const columns = set?.columns || []
   const types = set?.types || []
   const rows = set?.rows || []
@@ -78,7 +78,7 @@ export default function InsertScriptModal({ set, sql, dbType, onClose, onOpenInQ
     setError('')
     try {
       const api = await go()
-      const text = await api.GenerateInsertScript({
+      const text = await api.GenerateInsertScript(workspaceId, {
         schema,
         table,
         columns: idx.map(i => columns[i]),
@@ -98,7 +98,7 @@ export default function InsertScriptModal({ set, sql, dbType, onClose, onOpenInQ
     } finally {
       if (req === reqRef.current) setLoading(false)
     }
-  }, [columns, types, rows, selected, target, detectTypes, batchSize, identityInsert, deleteFirst, isSQLServer])
+  }, [workspaceId, columns, types, rows, selected, target, detectTypes, batchSize, identityInsert, deleteFirst, isSQLServer])
 
   useEffect(() => {
     const id = setTimeout(generate, 200)

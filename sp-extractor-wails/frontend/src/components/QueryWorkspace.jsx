@@ -4,6 +4,8 @@ import clsx from 'clsx'
 import SqlEditor, { getIdentifierAtCursor, stripQuotes } from './SqlEditor'
 import AutocompletesModal, { getStoredAutocompletes, loadStoredAutocompletes, saveStoredAutocompletes } from './AutocompletesModal'
 import InsertScriptModal from './InsertScriptModal'
+import StructuredViewerModal from './StructuredViewerModal'
+import { detectType } from '../utils/structured'
 
 let tabSeq = 0
 function newTab() {
@@ -65,6 +67,7 @@ export default function QueryWorkspace({
   const [tabs, setTabs] = useState(() => [newTab()])
   const [activeId, setActiveId] = useState(() => tabs[0].id)
   const [insertTarget, setInsertTarget] = useState(null)
+  const [viewer, setViewer] = useState(null) // JSON / XML cell open in the viewer
   const [maxRows, setMaxRows] = useState(DEFAULT_ROW_LIMIT)
   const [showResults, setShowResults] = useState(true)
 
@@ -580,6 +583,7 @@ export default function QueryWorkspace({
               tab={active}
               fontSize={fontSize}
               onInsertScript={set => setInsertTarget({ set, sql: active.lastSql || active.sql })}
+              onOpenCell={setViewer}
             />
           </div>
         </>
@@ -597,11 +601,22 @@ export default function QueryWorkspace({
       {/* INSERT script generator */}
       {insertTarget && (
         <InsertScriptModal
+          workspaceId={workspaceId}
           set={insertTarget.set}
           sql={insertTarget.sql}
           dbType={dbType}
           onClose={() => setInsertTarget(null)}
           onOpenInQuery={onOpenInQuery}
+        />
+      )}
+
+      {/* JSON / XML cell viewer */}
+      {viewer && (
+        <StructuredViewerModal
+          value={viewer.value}
+          hint={viewer.hint}
+          subtitle={viewer.subtitle}
+          onClose={() => setViewer(null)}
         />
       )}
 
@@ -616,7 +631,7 @@ export default function QueryWorkspace({
   )
 }
 
-function ResultArea({ tab, fontSize, onInsertScript }) {
+function ResultArea({ tab, fontSize, onInsertScript, onOpenCell }) {
   if (tab.error) {
     return (
       <div className="flex items-start gap-2 rounded-lg px-3 py-2 bg-red-500/10 border border-red-500/30 text-red-400 text-sm overflow-auto h-full">
@@ -653,14 +668,21 @@ function ResultArea({ tab, fontSize, onInsertScript }) {
         <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{durationMs} ms</span>
       </div>
       {sets.map((set, i) => (
-        <ResultGrid key={i} set={set} index={i} total={sets.length} fontSize={fontSize} onInsertScript={onInsertScript} />
+        <ResultGrid key={i} set={set} index={i} total={sets.length} fontSize={fontSize} onInsertScript={onInsertScript} onOpenCell={onOpenCell} />
       ))}
     </div>
   )
 }
 
-function ResultGrid({ set, index, total, fontSize, onInsertScript }) {
-  const { columns = [], rows = [] } = set
+// A JSON / XML cell shows only its beginning on one line; the whole value opens in the viewer.
+const SUMMARY_CHARS = 100
+function summarize(value) {
+  const oneLine = value.slice(0, SUMMARY_CHARS * 2).replace(/\s+/g, ' ').trim()
+  return oneLine.length > SUMMARY_CHARS || value.length > SUMMARY_CHARS * 2 ? `${oneLine.slice(0, SUMMARY_CHARS)}…` : oneLine
+}
+
+function ResultGrid({ set, index, total, fontSize, onInsertScript, onOpenCell }) {
+  const { columns = [], rows = [], types = [] } = set
   return (
     <div className="flex flex-col min-h-0">
       <div className="flex items-center gap-2 mb-1">
@@ -705,15 +727,30 @@ function ResultGrid({ set, index, total, fontSize, onInsertScript }) {
             ) : rows.map((row, r) => (
               <tr key={r} className={r % 2 === 0 ? 'hover:bg-surface-700/30' : 'bg-surface-800/30 hover:bg-surface-700/30'}>
                 <td className="px-2 py-1 text-right text-slate-600 font-mono border-r border-surface-700/60">{r + 1}</td>
-                {row.map((cell, c) => (
-                  <td key={c} className="px-3 py-1 font-mono text-slate-200 whitespace-nowrap border-r border-surface-700/60 align-top">
-                    {cell === null
-                      ? <span className="text-slate-600 italic">NULL</span>
-                      : cell === ''
-                      ? <span className="text-slate-600">(vacío)</span>
-                      : cell}
-                  </td>
-                ))}
+                {row.map((cell, c) => {
+                  // JSON / XML values open in a viewer when clicked.
+                  const structured = onOpenCell ? detectType(cell, types[c]) : null
+                  return (
+                    <td
+                      key={c}
+                      className={`px-3 py-1 font-mono whitespace-nowrap border-r border-surface-700/60 align-top ${
+                        structured ? 'max-w-[320px] overflow-hidden text-ellipsis text-sky-300 cursor-pointer hover:bg-sky-500/10 underline decoration-dotted underline-offset-2' : 'text-slate-200'}`}
+                      title={structured ? `Clic para ver como ${structured.toUpperCase()}` : undefined}
+                      onClick={structured ? () => {
+                        if (window.getSelection()?.toString()) return // the user is selecting text, not opening
+                        onOpenCell({ value: cell, hint: structured, subtitle: `${columns[c]} · fila ${r + 1}` })
+                      } : undefined}
+                    >
+                      {cell === null
+                        ? <span className="text-slate-600 italic">NULL</span>
+                        : cell === ''
+                        ? <span className="text-slate-600">(vacío)</span>
+                        : structured
+                        ? summarize(cell)
+                        : cell}
+                    </td>
+                  )
+                })}
               </tr>
             ))}
           </tbody>

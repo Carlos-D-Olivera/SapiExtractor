@@ -72,6 +72,9 @@ func (a *App) DebugProcedure(wsID string, req debug.Request) (debug.Result, erro
 	if res.Notes == nil {
 		res.Notes = []string{}
 	}
+	if res.Changes == nil {
+		res.Changes = []debug.DataChange{}
+	}
 	return *res, nil
 }
 
