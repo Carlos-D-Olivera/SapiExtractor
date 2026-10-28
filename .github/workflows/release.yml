@@ -52,21 +52,35 @@ jobs:
       - name: Decide which tag to build
         id: tag
         run: |
-          switch ('${{ github.event_name }}') {
+          $trigger = '${{ github.event_name }}'
+          switch ($trigger) {
             'workflow_run' {
               $json = Get-Content sp-extractor-wails/wails.json -Raw | ConvertFrom-Json
-              $tag = 'V.' + ($json.info.productVersion -replace '^[vV]\.?', '')
+              $requested = 'V.' + ($json.info.productVersion -replace '^[vV]\.?', '')
             }
-            'release' { $tag = '${{ github.event.release.tag_name }}' }
-            default   { $tag = '${{ inputs.tag }}' }
+            'release' { $requested = '${{ github.event.release.tag_name }}' }
+            default   { $requested = '${{ inputs.tag }}' }
           }
-          Write-Host "Candidate tag: $tag"
+          $requested = "$requested".Trim()
+          Write-Host "Requested tag: '$requested'"
 
-          if (-not (git tag -l $tag)) {
-            Write-Host "The tag $tag does not exist (the version did not change): nothing to publish."
-            "skip=true" >> $env:GITHUB_OUTPUT
-            exit 0
+          # Accept 2.7.1, v2.7.1 and V.2.7.1: use the existing tag with that version number.
+          $wanted = $requested -replace '^[vV]\.?', ''
+          $allTags = @(git tag -l)
+          $tag = $allTags | Where-Object { ($_ -replace '^[vV]\.?', '') -eq $wanted } | Select-Object -First 1
+          $global:LASTEXITCODE = 0
+
+          if (-not $tag) {
+            # After an automatic merge a missing tag just means the version did not change.
+            if ($trigger -eq 'workflow_run') {
+              Write-Host "The tag for version '$wanted' does not exist (the version did not change): nothing to publish."
+              "skip=true" >> $env:GITHUB_OUTPUT
+              exit 0
+            }
+            # A manual run must never "succeed" without publishing anything.
+            throw "The tag '$requested' does not exist. Existing tags: $($allTags -join ', ')"
           }
+          Write-Host "Building tag: $tag"
 
           # After an automatic merge, do not rebuild a version that is already published.
           if ('${{ github.event_name }}' -eq 'workflow_run') {
