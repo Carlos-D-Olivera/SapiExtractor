@@ -49,6 +49,13 @@ jobs:
           fetch-tags: true
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
+      - name: Keep the release-notes script (the tagged commit may be older than it)
+        run: |
+          if (Test-Path .github/scripts/release-notes.ps1) {
+            Copy-Item .github/scripts/release-notes.ps1 (Join-Path $env:RUNNER_TEMP 'release-notes.ps1')
+          }
+          exit 0
+
       - name: Decide which tag to build
         id: tag
         run: |
@@ -149,6 +156,17 @@ jobs:
           "$hash  SapiExtractor.exe" | Out-File -FilePath SHA256SUMS -Encoding ascii
           Get-Content SHA256SUMS
 
+      - name: Release notes from the commit messages
+        if: steps.tag.outputs.skip != 'true'
+        run: |
+          $script = Join-Path $env:RUNNER_TEMP 'release-notes.ps1'
+          if (Test-Path $script) {
+            & $script -Tag '${{ steps.tag.outputs.tag }}' -Repo $env:REPO -Out (Join-Path $env:RUNNER_TEMP 'release-notes.md')
+          } else {
+            Write-Host 'The notes script is not available: GitHub will generate the notes.'
+          }
+          exit 0
+
       - name: Publish the release
         if: steps.tag.outputs.skip != 'true'
         working-directory: sp-extractor-wails
@@ -156,7 +174,9 @@ jobs:
           $tag = '${{ steps.tag.outputs.tag }}'
           gh release view $tag --repo $env:REPO *> $null
           if ($LASTEXITCODE -ne 0) {
-            gh release create $tag build/bin/SapiExtractor.exe build/bin/SHA256SUMS --repo $env:REPO --title $tag --generate-notes --verify-tag
+            $notes = Join-Path $env:RUNNER_TEMP 'release-notes.md'
+            $notesArgs = if (Test-Path $notes) { @('--notes-file', $notes) } else { @('--generate-notes') }
+            gh release create $tag build/bin/SapiExtractor.exe build/bin/SHA256SUMS --repo $env:REPO --title $tag @notesArgs --verify-tag
           } else {
             gh release upload $tag build/bin/SapiExtractor.exe build/bin/SHA256SUMS --clobber --repo $env:REPO
           }
