@@ -198,7 +198,7 @@ func TestSessionAndSettings(t *testing.T) {
 	}
 
 	def, _ := s.LoadSettings()
-	if !def.HistoryEnabled || def.RetentionDays != DefaultRetention || def.MaxEntries != DefaultMaxEntry || def.AutoRestore {
+	if !def.HistoryEnabled || def.RetentionDays != DefaultRetention || def.MaxEntries != DefaultMaxEntry || def.AutoRestore || !def.CheckUpdates {
 		t.Errorf("defaults = %+v", def)
 	}
 	_ = s.SaveSettings(Settings{HistoryEnabled: true, RetentionDays: -5, MaxEntries: 0, AutoRestore: true})

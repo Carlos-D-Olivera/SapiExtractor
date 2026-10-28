@@ -1,0 +1,78 @@
+name: Build release executable
+
+# Publishing a GitHub Release (Releases > Draft a new release > Publish) builds the
+# Windows executable from that tag and attaches it, with its SHA-256, to the release.
+# The app's "Actualizar" button downloads exactly these two files.
+#
+# Tag format: V.2.7.0 (or v2.7.0). The version shown in the app comes from the tag.
+# The release must NOT be marked as pre-release/draft, or the app will not offer it.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing release tag to (re)build and attach, e.g. V.2.7.0'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    name: Build and attach SapiExtractor.exe
+    runs-on: windows-latest
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: sp-extractor-wails
+    steps:
+      - name: Checkout the tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.tag }}
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: sp-extractor-wails/go.mod
+          cache-dependency-path: sp-extractor-wails/go.sum
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: sp-extractor-wails/frontend/package-lock.json
+
+      - name: Install the Wails CLI (same version as go.mod)
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.16.0
+
+      - name: Version from the tag
+        id: ver
+        run: |
+          $v = $env:TAG -replace '^[vV]\.?', ''
+          if ($v -notmatch '^\d+\.\d+\.\d+') { throw "The tag '$env:TAG' is not a version number (expected V.X.Y.Z)" }
+          "version=$v" >> $env:GITHUB_OUTPUT
+
+      - name: Go tests
+        run: go test ./...
+
+      - name: Build
+        run: wails build -clean -platform windows/amd64 -ldflags "-X main.version=${{ steps.ver.outputs.version }}"
+
+      - name: Checksums
+        working-directory: sp-extractor-wails/build/bin
+        run: |
+          if (-not (Test-Path SapiExtractor.exe)) { throw 'SapiExtractor.exe was not produced' }
+          $hash = (Get-FileHash SapiExtractor.exe -Algorithm SHA256).Hash.ToLower()
+          "$hash  SapiExtractor.exe" | Out-File -FilePath SHA256SUMS -Encoding ascii
+          Get-Content SHA256SUMS
+
+      - name: Attach to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$env:TAG" build/bin/SapiExtractor.exe build/bin/SHA256SUMS --clobber --repo "${{ github.repository }}"

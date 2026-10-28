@@ -40,6 +40,7 @@ type Store struct {
 	dir    string
 	mu     sync.Mutex
 	counts map[string]int // history lines per database, to decide when to compact
+	seq    uint64         // makes entry IDs unique even when the clock does not advance between two calls
 }
 
 // New creates a store rooted at dir (created on first write).
@@ -213,11 +214,15 @@ type Settings struct {
 	RetentionDays  int  `json:"retentionDays"`
 	MaxEntries     int  `json:"maxEntries"`
 	AutoRestore    bool `json:"autoRestore"` // restore the previous session without asking
+	// CheckUpdates looks for a newer release when the app starts.
+	CheckUpdates bool `json:"checkUpdates"`
+	// SkippedVersion is a release the user chose not to be reminded about.
+	SkippedVersion string `json:"skippedVersion"`
 }
 
 // DefaultSettings are used until the user changes them.
 func DefaultSettings() Settings {
-	return Settings{HistoryEnabled: true, RetentionDays: DefaultRetention, MaxEntries: DefaultMaxEntry}
+	return Settings{HistoryEnabled: true, RetentionDays: DefaultRetention, MaxEntries: DefaultMaxEntry, CheckUpdates: true}
 }
 
 func (st Settings) sane() Settings {
@@ -252,8 +257,10 @@ func (s *Store) SaveSettings(st Settings) error {
 
 func (s *Store) historyPath(key string) string { return filepath.Join(s.dbDir(key), "history.jsonl") }
 
-func newID() string {
-	return fmt.Sprintf("%x", time.Now().UnixNano())
+// newIDLocked returns an ID that is unique within this process (clock + counter).
+func (s *Store) newIDLocked() string {
+	s.seq++
+	return fmt.Sprintf("%x-%x", time.Now().UnixNano(), s.seq)
 }
 
 // AppendHistory records an executed query. It does nothing when history is
@@ -270,7 +277,7 @@ func (s *Store) AppendHistory(key string, e HistoryEntry) error {
 		e.SQL, e.Truncated = clip(e.SQL, MaxHistorySQL), true
 	}
 	if e.ID == "" {
-		e.ID = newID()
+		e.ID = s.newIDLocked()
 	}
 	if e.At == 0 {
 		e.At = time.Now().UnixMilli()

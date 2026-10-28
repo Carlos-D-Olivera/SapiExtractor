@@ -951,6 +951,8 @@ export namespace store {
 	    retentionDays: number;
 	    maxEntries: number;
 	    autoRestore: boolean;
+	    checkUpdates: boolean;
+	    skippedVersion: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new Settings(source);
@@ -962,6 +964,8 @@ export namespace store {
 	        this.retentionDays = source["retentionDays"];
 	        this.maxEntries = source["maxEntries"];
 	        this.autoRestore = source["autoRestore"];
+	        this.checkUpdates = source["checkUpdates"];
+	        this.skippedVersion = source["skippedVersion"];
 	    }
 	}
 
@@ -981,6 +985,49 @@ export namespace trace {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.minDurationMs = source["minDurationMs"];
 	        this.includeOwn = source["includeOwn"];
+	    }
+	}
+
+}
+
+export namespace update {
+	
+	export class Info {
+	    available: boolean;
+	    current: string;
+	    latest: string;
+	    tag: string;
+	    name: string;
+	    notes: string;
+	    pageUrl: string;
+	    publishedAt: string;
+	    assetName: string;
+	    assetUrl: string;
+	    assetSize: number;
+	    sumsUrl: string;
+	    canAutoInstall: boolean;
+	    reason: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Info(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.available = source["available"];
+	        this.current = source["current"];
+	        this.latest = source["latest"];
+	        this.tag = source["tag"];
+	        this.name = source["name"];
+	        this.notes = source["notes"];
+	        this.pageUrl = source["pageUrl"];
+	        this.publishedAt = source["publishedAt"];
+	        this.assetName = source["assetName"];
+	        this.assetUrl = source["assetUrl"];
+	        this.assetSize = source["assetSize"];
+	        this.sumsUrl = source["sumsUrl"];
+	        this.canAutoInstall = source["canAutoInstall"];
+	        this.reason = source["reason"];
 	    }
 	}
 
