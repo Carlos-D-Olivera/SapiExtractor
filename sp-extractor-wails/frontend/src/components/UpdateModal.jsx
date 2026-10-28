@@ -90,7 +90,7 @@ export default function UpdateModal({ version, info: initialInfo, onClose, onSki
 
   const openPage = async () => {
     const { BrowserOpenURL } = await import('../../wailsjs/runtime/runtime')
-    BrowserOpenURL(info?.pageUrl || 'https://github.com/Carlos-D-Olivera/SpExtractor/releases/latest')
+    BrowserOpenURL(info?.pageUrl || 'https://github.com/Carlos-D-Olivera/SapiExtractor/releases/latest')
   }
 
   const pct = progress?.phase === 'download' && progress.total > 0 ? Math.min(100, Math.round((progress.done / progress.total) * 100)) : null

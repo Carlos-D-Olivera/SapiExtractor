@@ -26,7 +26,7 @@ import (
 
 // Defaults for this project's releases.
 const (
-	DefaultRepo      = "Carlos-D-Olivera/SpExtractor"
+	DefaultRepo      = "Carlos-D-Olivera/SapiExtractor"
 	DefaultAPIBase   = "https://api.github.com"
 	DefaultAsset     = "SapiExtractor.exe"
 	maxAssetBytes    = 500 << 20

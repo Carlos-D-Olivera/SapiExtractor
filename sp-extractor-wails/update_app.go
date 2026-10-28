@@ -11,21 +11,15 @@ import (
 	"sp-extractor-wails/pkg/update"
 )
 
-// version is the running release. Release builds set it from the tag:
-//
-//	wails build -ldflags "-X main.version=2.7.0"
-//
-// A plain local build stays "dev" and is never offered updates.
-var version = "dev"
-
-// GetAppVersion returns the running version ("dev" for local builds).
-func (a *App) GetAppVersion() string { return version }
+// GetAppVersion returns the running version: wails.json's productVersion (or the
+// value injected by the release build), and "dev" only under `wails dev`.
+func (a *App) GetAppVersion() string { return appVersion() }
 
 // CheckForUpdate asks GitHub whether a newer release exists.
 func (a *App) CheckForUpdate() (update.Info, error) {
 	ctx, cancel := context.WithTimeout(a.ctx, 15*time.Second)
 	defer cancel()
-	return update.NewClient().Check(ctx, version)
+	return update.NewClient().Check(ctx, appVersion())
 }
 
 var installing atomic.Bool
@@ -34,7 +28,8 @@ var installing atomic.Bool
 // executable, starts the new one and quits. Progress is reported through the
 // "update:progress" event ({phase, done, total}).
 func (a *App) InstallUpdate() error {
-	if version == "dev" {
+	current := appVersion()
+	if current == "dev" {
 		return fmt.Errorf("las actualizaciones automáticas están desactivadas en las versiones de desarrollo")
 	}
 	if !installing.CompareAndSwap(false, true) {
@@ -46,13 +41,13 @@ func (a *App) InstallUpdate() error {
 
 	// Look the release up again instead of trusting data from the UI.
 	checkCtx, cancel := context.WithTimeout(a.ctx, 15*time.Second)
-	info, err := client.Check(checkCtx, version)
+	info, err := client.Check(checkCtx, current)
 	cancel()
 	if err != nil {
 		return err
 	}
 	if !info.Available {
-		return fmt.Errorf("ya tienes la última versión (%s)", version)
+		return fmt.Errorf("ya tienes la última versión (%s)", current)
 	}
 
 	exe, err := update.Executable()
