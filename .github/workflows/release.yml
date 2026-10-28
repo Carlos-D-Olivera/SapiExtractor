@@ -1,19 +1,30 @@
 name: Build release executable
 
-# Publishing a GitHub Release (Releases > Draft a new release > Publish) builds the
-# Windows executable from that tag and attaches it, with its SHA-256, to the release.
-# The app's "Actualizar" button downloads exactly these two files.
+# Builds SapiExtractor.exe for a version tag and publishes it, together with its
+# SHA-256, as a GitHub Release. The app's "Actualizar" button downloads exactly
+# these two files (SapiExtractor.exe and SHA256SUMS) from the latest release.
 #
-# Tag format: V.2.7.0 (or v2.7.0). The version shown in the app comes from the tag.
-# The release must NOT be marked as pre-release/draft, or the app will not offer it.
+# It runs in three situations:
+#   1. Automatically, after "Auto Merge to Main on Version Bump" succeeds. That
+#      workflow merges develop into main and creates the tag V.X.Y.Z, but a tag
+#      pushed with GITHUB_TOKEN does not start other workflows, hence workflow_run.
+#      The version is read from sp-extractor-wails/wails.json.
+#   2. When you publish a release by hand (Releases > Draft a new release).
+#   3. Manually (Actions > Build release executable > Run workflow) for an
+#      existing tag, e.g. to publish a tag that has no release yet.
+#
+# The release must not be a draft or pre-release, or the app will not offer it.
 
 on:
+  workflow_run:
+    workflows: ["Auto Merge to Main on Version Bump"]
+    types: [completed]
   release:
     types: [published]
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Existing release tag to (re)build and attach, e.g. V.2.7.0'
+        description: 'Existing tag to build and publish, e.g. V.2.7.0'
         required: true
 
 permissions:
@@ -21,27 +32,71 @@ permissions:
 
 jobs:
   build-windows:
-    name: Build and attach SapiExtractor.exe
+    name: Build and publish SapiExtractor.exe
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: windows-latest
-    env:
-      TAG: ${{ github.event.release.tag_name || inputs.tag }}
     defaults:
       run:
         shell: pwsh
-        working-directory: sp-extractor-wails
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
     steps:
-      - name: Checkout the tag
+      - name: Checkout (full history and tags)
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.release.tag_name || inputs.tag }}
+          fetch-depth: 0
+          fetch-tags: true
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Decide which tag to build
+        id: tag
+        run: |
+          switch ('${{ github.event_name }}') {
+            'workflow_run' {
+              $json = Get-Content sp-extractor-wails/wails.json -Raw | ConvertFrom-Json
+              $tag = 'V.' + ($json.info.productVersion -replace '^[vV]\.?', '')
+            }
+            'release' { $tag = '${{ github.event.release.tag_name }}' }
+            default   { $tag = '${{ inputs.tag }}' }
+          }
+          Write-Host "Candidate tag: $tag"
+
+          if (-not (git tag -l $tag)) {
+            Write-Host "The tag $tag does not exist (the version did not change): nothing to publish."
+            "skip=true" >> $env:GITHUB_OUTPUT
+            exit 0
+          }
+
+          # After an automatic merge, do not rebuild a version that is already published.
+          if ('${{ github.event_name }}' -eq 'workflow_run') {
+            $assets = @(gh release view $tag --repo $env:REPO --json assets --jq '.assets[].name' 2>$null)
+            if ($LASTEXITCODE -eq 0 -and $assets -contains 'SapiExtractor.exe') {
+              Write-Host "The release $tag already has SapiExtractor.exe: nothing to do."
+              "skip=true" >> $env:GITHUB_OUTPUT
+              exit 0
+            }
+          }
+
+          "skip=false" >> $env:GITHUB_OUTPUT
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+          $version = $tag -replace '^[vV]\.?', ''
+          if ($version -notmatch '^\d+\.\d+\.\d+') { throw "The tag '$tag' is not a version number (expected V.X.Y.Z)" }
+          "version=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Use the tagged commit
+        if: steps.tag.outputs.skip != 'true'
+        run: git checkout --detach "${{ steps.tag.outputs.tag }}"
 
       - name: Set up Go
+        if: steps.tag.outputs.skip != 'true'
         uses: actions/setup-go@v5
         with:
           go-version-file: sp-extractor-wails/go.mod
           cache-dependency-path: sp-extractor-wails/go.sum
 
       - name: Set up Node
+        if: steps.tag.outputs.skip != 'true'
         uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -49,22 +104,23 @@ jobs:
           cache-dependency-path: sp-extractor-wails/frontend/package-lock.json
 
       - name: Install the Wails CLI (same version as go.mod)
-        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.16.0
-
-      - name: Version from the tag
-        id: ver
+        if: steps.tag.outputs.skip != 'true'
         run: |
-          $v = $env:TAG -replace '^[vV]\.?', ''
-          if ($v -notmatch '^\d+\.\d+\.\d+') { throw "The tag '$env:TAG' is not a version number (expected V.X.Y.Z)" }
-          "version=$v" >> $env:GITHUB_OUTPUT
+          go install github.com/wailsapp/wails/v2/cmd/wails@v2.16.0
+          Join-Path (go env GOPATH) 'bin' >> $env:GITHUB_PATH
 
       - name: Go tests
+        if: steps.tag.outputs.skip != 'true'
+        working-directory: sp-extractor-wails
         run: go test ./...
 
       - name: Build
-        run: wails build -clean -platform windows/amd64 -ldflags "-X main.version=${{ steps.ver.outputs.version }}"
+        if: steps.tag.outputs.skip != 'true'
+        working-directory: sp-extractor-wails
+        run: wails build -clean -platform windows/amd64 -ldflags "-X main.version=${{ steps.tag.outputs.version }}"
 
       - name: Checksums
+        if: steps.tag.outputs.skip != 'true'
         working-directory: sp-extractor-wails/build/bin
         run: |
           if (-not (Test-Path SapiExtractor.exe)) { throw 'SapiExtractor.exe was not produced' }
@@ -72,7 +128,15 @@ jobs:
           "$hash  SapiExtractor.exe" | Out-File -FilePath SHA256SUMS -Encoding ascii
           Get-Content SHA256SUMS
 
-      - name: Attach to the release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release upload "$env:TAG" build/bin/SapiExtractor.exe build/bin/SHA256SUMS --clobber --repo "${{ github.repository }}"
+      - name: Publish the release
+        if: steps.tag.outputs.skip != 'true'
+        working-directory: sp-extractor-wails
+        run: |
+          $tag = '${{ steps.tag.outputs.tag }}'
+          gh release view $tag --repo $env:REPO *> $null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $tag build/bin/SapiExtractor.exe build/bin/SHA256SUMS --repo $env:REPO --title $tag --generate-notes --verify-tag
+          } else {
+            gh release upload $tag build/bin/SapiExtractor.exe build/bin/SHA256SUMS --clobber --repo $env:REPO
+          }
+          if ($LASTEXITCODE -ne 0) { throw 'Publishing the release failed' }
