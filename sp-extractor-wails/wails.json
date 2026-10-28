@@ -7,7 +7,7 @@
   "frontend:dev:watcher": "npm run dev",
   "frontend:dev:serverUrl": "auto",
   "info": {
-    "productVersion": "2.7.0"
+    "productVersion": "2.7.1"
   },
   "author": {
     "name": "Carlos Olivera",

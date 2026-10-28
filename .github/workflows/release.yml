@@ -109,15 +109,17 @@ jobs:
           go install github.com/wailsapp/wails/v2/cmd/wails@v2.16.0
           Join-Path (go env GOPATH) 'bin' >> $env:GITHUB_PATH
 
-      - name: Go tests
-        if: steps.tag.outputs.skip != 'true'
-        working-directory: sp-extractor-wails
-        run: go test ./...
-
+      # Build first: main.go embeds frontend/dist (not committed), so the main
+      # package only compiles once the frontend has been built.
       - name: Build
         if: steps.tag.outputs.skip != 'true'
         working-directory: sp-extractor-wails
         run: wails build -clean -platform windows/amd64 -ldflags "-X main.version=${{ steps.tag.outputs.version }}"
+
+      - name: Go tests
+        if: steps.tag.outputs.skip != 'true'
+        working-directory: sp-extractor-wails
+        run: go test ./...
 
       - name: Checksums
         if: steps.tag.outputs.skip != 'true'
