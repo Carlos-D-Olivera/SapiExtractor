@@ -14,6 +14,10 @@ export function CleanupTraceSessions(arg1) {
   return window['go']['main']['App']['CleanupTraceSessions'](arg1);
 }
 
+export function ClearHistory(arg1) {
+  return window['go']['main']['App']['ClearHistory'](arg1);
+}
+
 export function Connect(arg1, arg2) {
   return window['go']['main']['App']['Connect'](arg1, arg2);
 }
@@ -28,6 +32,10 @@ export function DebugProcedure(arg1, arg2) {
 
 export function DeleteConnection(arg1) {
   return window['go']['main']['App']['DeleteConnection'](arg1);
+}
+
+export function DeleteHistoryEntry(arg1, arg2) {
+  return window['go']['main']['App']['DeleteHistoryEntry'](arg1, arg2);
 }
 
 export function Disconnect(arg1) {
@@ -58,6 +66,10 @@ export function GetObjectText(arg1, arg2) {
   return window['go']['main']['App']['GetObjectText'](arg1, arg2);
 }
 
+export function GetPersistenceSettings() {
+  return window['go']['main']['App']['GetPersistenceSettings']();
+}
+
 export function GetProcParameters(arg1, arg2, arg3) {
   return window['go']['main']['App']['GetProcParameters'](arg1, arg2, arg3);
 }
@@ -74,6 +86,10 @@ export function ListDatabases(arg1) {
   return window['go']['main']['App']['ListDatabases'](arg1);
 }
 
+export function ListHistory(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['ListHistory'](arg1, arg2, arg3, arg4);
+}
+
 export function ListObjects(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['ListObjects'](arg1, arg2, arg3, arg4);
 }
@@ -84,6 +100,14 @@ export function LoadAutoCompletes() {
 
 export function LoadConnections() {
   return window['go']['main']['App']['LoadConnections']();
+}
+
+export function LoadQueryState(arg1) {
+  return window['go']['main']['App']['LoadQueryState'](arg1);
+}
+
+export function LoadSession() {
+  return window['go']['main']['App']['LoadSession']();
 }
 
 export function OpenObject(arg1, arg2) {
@@ -110,12 +134,24 @@ export function SaveObject(arg1, arg2) {
   return window['go']['main']['App']['SaveObject'](arg1, arg2);
 }
 
+export function SaveQueryState(arg1, arg2) {
+  return window['go']['main']['App']['SaveQueryState'](arg1, arg2);
+}
+
 export function SaveScript(arg1, arg2) {
   return window['go']['main']['App']['SaveScript'](arg1, arg2);
 }
 
+export function SaveSession(arg1) {
+  return window['go']['main']['App']['SaveSession'](arg1);
+}
+
 export function SearchTables(arg1, arg2, arg3) {
   return window['go']['main']['App']['SearchTables'](arg1, arg2, arg3);
+}
+
+export function SetPersistenceSettings(arg1) {
+  return window['go']['main']['App']['SetPersistenceSettings'](arg1);
 }
 
 export function StartTrace(arg1, arg2) {

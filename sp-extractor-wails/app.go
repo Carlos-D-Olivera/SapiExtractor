@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
@@ -17,6 +18,7 @@ import (
 	"sp-extractor-wails/pkg/db"
 	"sp-extractor-wails/pkg/db/extractors"
 	"sp-extractor-wails/pkg/db/scriptgen"
+	"sp-extractor-wails/pkg/store"
 )
 
 // WorkspaceSession holds the state and active database connection for an individual workspace.
@@ -37,13 +39,20 @@ type App struct {
 	ctx      context.Context
 	sessMu   sync.RWMutex
 	sessions map[string]*WorkspaceSession
+	store    *store.Store // per-database tabs, query history and the saved session
 }
 
 // NewApp creates a new App instance with multi-workspace support.
 func NewApp() *App {
-	return &App{
+	app := &App{
 		sessions: make(map[string]*WorkspaceSession),
 	}
+	dir, err := store.DefaultDir()
+	if err != nil {
+		dir = filepath.Join(os.TempDir(), "spextractor") // no home directory: keep working, just not persistently
+	}
+	app.store = store.New(dir)
+	return app
 }
 
 // startup is called by Wails when the application starts.
@@ -359,6 +368,13 @@ type QueryResponse struct {
 
 // ExecuteQuery runs an arbitrary SQL statement/script against the workspace connection.
 func (a *App) ExecuteQuery(wsID, sqlText string, maxRows int) (QueryResponse, error) {
+	start := time.Now()
+	resp, err := a.executeQuery(wsID, sqlText, maxRows)
+	a.recordHistory(wsID, sqlText, resp, err, time.Since(start))
+	return resp, err
+}
+
+func (a *App) executeQuery(wsID, sqlText string, maxRows int) (QueryResponse, error) {
 	s, err := a.getSession(wsID)
 	if err != nil {
 		return QueryResponse{}, err

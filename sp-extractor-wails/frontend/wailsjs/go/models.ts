@@ -773,6 +773,200 @@ export namespace main {
 
 }
 
+export namespace store {
+	
+	export class HistoryEntry {
+	    id: string;
+	    sql: string;
+	    at: number;
+	    durationMs: number;
+	    rows: number;
+	    sets: number;
+	    error: string;
+	    truncated: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new HistoryEntry(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.sql = source["sql"];
+	        this.at = source["at"];
+	        this.durationMs = source["durationMs"];
+	        this.rows = source["rows"];
+	        this.sets = source["sets"];
+	        this.error = source["error"];
+	        this.truncated = source["truncated"];
+	    }
+	}
+	export class HistoryPage {
+	    entries: HistoryEntry[];
+	    total: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new HistoryPage(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.entries = this.convertValues(source["entries"], HistoryEntry);
+	        this.total = source["total"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class Tab {
+	    id: string;
+	    title: string;
+	    sql: string;
+	    closedAt?: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new Tab(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.title = source["title"];
+	        this.sql = source["sql"];
+	        this.closedAt = source["closedAt"];
+	    }
+	}
+	export class QueryState {
+	    tabs: Tab[];
+	    activeId: string;
+	    closed: Tab[];
+	    updatedAt: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new QueryState(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.tabs = this.convertValues(source["tabs"], Tab);
+	        this.activeId = source["activeId"];
+	        this.closed = this.convertValues(source["closed"], Tab);
+	        this.updatedAt = source["updatedAt"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class SessionWorkspace {
+	    id: string;
+	    view: string;
+	    dbType: string;
+	    host: string;
+	    port: string;
+	    dbName: string;
+	    user: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new SessionWorkspace(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.view = source["view"];
+	        this.dbType = source["dbType"];
+	        this.host = source["host"];
+	        this.port = source["port"];
+	        this.dbName = source["dbName"];
+	        this.user = source["user"];
+	    }
+	}
+	export class Session {
+	    activeId: string;
+	    workspaces: SessionWorkspace[];
+	    savedAt: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new Session(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.activeId = source["activeId"];
+	        this.workspaces = this.convertValues(source["workspaces"], SessionWorkspace);
+	        this.savedAt = source["savedAt"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+	export class Settings {
+	    historyEnabled: boolean;
+	    retentionDays: number;
+	    maxEntries: number;
+	    autoRestore: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new Settings(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.historyEnabled = source["historyEnabled"];
+	        this.retentionDays = source["retentionDays"];
+	        this.maxEntries = source["maxEntries"];
+	        this.autoRestore = source["autoRestore"];
+	    }
+	}
+
+}
+
 export namespace trace {
 	
 	export class Options {
