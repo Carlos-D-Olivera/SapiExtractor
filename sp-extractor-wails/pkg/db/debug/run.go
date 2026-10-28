@@ -21,6 +21,10 @@ type Request struct {
 	Params   []ParamInput `json:"params"`
 	Rollback bool         `json:"rollback"` // run inside BEGIN TRAN … ROLLBACK
 	MaxRows  int          `json:"maxRows"`  // rows kept per result set (0 = 500)
+	// TrackData compares the tables the procedure wrote before and after. It
+	// needs Rollback, and keeps the transaction (and its locks) open for the few
+	// seconds it takes to collect the trace.
+	TrackData bool `json:"trackData"`
 }
 
 // Hooks lets the caller reuse its own value/type formatting for result sets.
@@ -54,18 +58,19 @@ type NameValue struct {
 
 // Result is everything a debug run produced.
 type Result struct {
-	Steps       []*Step     `json:"steps"`
-	Sources     []Source    `json:"sources"`
-	Sets        []ResultSet `json:"sets"`
-	Messages    []Message   `json:"messages"`
-	ReturnValue *string     `json:"returnValue"`
-	Outputs     []NameValue `json:"outputs"`
-	Failed      bool        `json:"failed"`
-	RolledBack  bool        `json:"rolledBack"`
-	DurationMs  int64       `json:"durationMs"`
-	StepCount   int         `json:"stepCount"`
-	Notes       []string    `json:"notes"`
-	Batch       string      `json:"batch"` // the T-SQL that was executed
+	Steps       []*Step      `json:"steps"`
+	Sources     []Source     `json:"sources"`
+	Sets        []ResultSet  `json:"sets"`
+	Messages    []Message    `json:"messages"`
+	ReturnValue *string      `json:"returnValue"`
+	Outputs     []NameValue  `json:"outputs"`
+	Changes     []DataChange `json:"changes"` // data the run changed, per table (TrackData)
+	Failed      bool         `json:"failed"`
+	RolledBack  bool         `json:"rolledBack"`
+	DurationMs  int64        `json:"durationMs"`
+	StepCount   int          `json:"stepCount"`
+	Notes       []string     `json:"notes"`
+	Batch       string       `json:"batch"` // the T-SQL that was executed
 }
 
 const defaultMaxRows = 500
@@ -133,13 +138,28 @@ func Run(ctx context.Context, pool *sql.DB, req Request, h Hooks) (*Result, erro
 			return nil, err
 		}
 	}
+	// Never leave a transaction open on a pooled connection (idempotent).
+	rolledBack := false
+	rollback := func() {
+		if rolledBack {
+			return
+		}
+		rolledBack = true
+		cctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_, _ = conn.ExecContext(cctx, "IF @@TRANCOUNT > 0 ROLLBACK TRAN")
+	}
+	defer rollback()
+
 	execBatch(ctx, conn, batch, req.MaxRows, h, res)
 	res.DurationMs = time.Since(start).Milliseconds()
 
-	// Never leave a transaction open on a pooled connection.
-	cctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	_, _ = conn.ExecContext(cctx, "IF @@TRANCOUNT > 0 ROLLBACK TRAN")
-	cancel()
+	// Comparing data needs the transaction to stay open until the "after" state
+	// has been read, so the rollback is postponed in that case.
+	track := req.TrackData && req.Rollback
+	if !track {
+		rollback()
+	}
 
 	events, info, err := collectEvents(ctx, pool, name)
 	if err != nil {
@@ -147,6 +167,13 @@ func Run(ctx context.Context, pool *sql.DB, req Request, h Hooks) (*Result, erro
 	}
 	if info.Truncated || info.Dropped > 0 {
 		res.Notes = append(res.Notes, "El buffer de la traza se llenó: faltan las sentencias más antiguas o algunas se perdieron.")
+	}
+
+	if track {
+		changes, notes := trackChanges(ctx, conn, rollback, req.Schema, events)
+		res.Changes = changes
+		res.Notes = append(res.Notes, notes...)
+		rollback()
 	}
 
 	srcs := loadSources(ctx, pool, events)

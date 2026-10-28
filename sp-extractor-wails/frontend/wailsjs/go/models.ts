@@ -242,6 +242,108 @@ export namespace debug {
 	        this.output = source["output"];
 	    }
 	}
+	export class ColChange {
+	    column: string;
+	    before?: string;
+	    after?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ColChange(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.column = source["column"];
+	        this.before = source["before"];
+	        this.after = source["after"];
+	    }
+	}
+	export class RowUpdate {
+	    key: string;
+	    changes: ColChange[];
+	
+	    static createFrom(source: any = {}) {
+	        return new RowUpdate(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.key = source["key"];
+	        this.changes = this.convertValues(source["changes"], ColChange);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class DataChange {
+	    table: string;
+	    columns: string[];
+	    primaryKey: string[];
+	    inserted: string[][];
+	    deleted: string[][];
+	    updated: RowUpdate[];
+	    insertedCount: number;
+	    deletedCount: number;
+	    updatedCount: number;
+	    rowsBefore: number;
+	    rowsAfter: number;
+	    skippedColumns: string[];
+	    skipped: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new DataChange(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.table = source["table"];
+	        this.columns = source["columns"];
+	        this.primaryKey = source["primaryKey"];
+	        this.inserted = source["inserted"];
+	        this.deleted = source["deleted"];
+	        this.updated = this.convertValues(source["updated"], RowUpdate);
+	        this.insertedCount = source["insertedCount"];
+	        this.deletedCount = source["deletedCount"];
+	        this.updatedCount = source["updatedCount"];
+	        this.rowsBefore = source["rowsBefore"];
+	        this.rowsAfter = source["rowsAfter"];
+	        this.skippedColumns = source["skippedColumns"];
+	        this.skipped = source["skipped"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class Message {
 	    kind: string;
 	    text: string;
@@ -358,6 +460,7 @@ export namespace debug {
 	    params: ParamInput[];
 	    rollback: boolean;
 	    maxRows: number;
+	    trackData: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new Request(source);
@@ -370,6 +473,7 @@ export namespace debug {
 	        this.params = this.convertValues(source["params"], ParamInput);
 	        this.rollback = source["rollback"];
 	        this.maxRows = source["maxRows"];
+	        this.trackData = source["trackData"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -497,6 +601,7 @@ export namespace debug {
 	    messages: Message[];
 	    returnValue?: string;
 	    outputs: NameValue[];
+	    changes: DataChange[];
 	    failed: boolean;
 	    rolledBack: boolean;
 	    durationMs: number;
@@ -516,6 +621,7 @@ export namespace debug {
 	        this.messages = this.convertValues(source["messages"], Message);
 	        this.returnValue = source["returnValue"];
 	        this.outputs = this.convertValues(source["outputs"], NameValue);
+	        this.changes = this.convertValues(source["changes"], DataChange);
 	        this.failed = source["failed"];
 	        this.rolledBack = source["rolledBack"];
 	        this.durationMs = source["durationMs"];
@@ -542,6 +648,7 @@ export namespace debug {
 		    return a;
 		}
 	}
+	
 	
 	
 

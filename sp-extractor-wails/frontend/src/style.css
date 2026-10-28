@@ -190,3 +190,12 @@
   }
 }
 
+
+/* Syntax colours for the JSON / XML viewer */
+.tok-key { color: #7dd3fc; }
+.tok-string { color: #86efac; }
+.tok-number { color: #fcd34d; }
+.tok-literal { color: #f0abfc; }
+.tok-tag { color: #7dd3fc; }
+.tok-attr { color: #fdba74; }
+.tok-comment { color: #64748b; font-style: italic; }

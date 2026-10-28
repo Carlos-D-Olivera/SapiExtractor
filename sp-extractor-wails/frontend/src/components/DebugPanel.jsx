@@ -12,6 +12,7 @@ const TABS = [
   { id: 'results', label: 'Resultados' },
   { id: 'messages', label: 'Mensajes' },
   { id: 'output', label: 'Retorno y salida' },
+  { id: 'changes', label: 'Cambios en datos' },
 ]
 
 const BRANCH_STYLE = {
@@ -55,6 +56,8 @@ export default function DebugPanel({ workspaceId, obj, initial, onBack, onOpenIn
   const [params, setParams] = useState(null) // null = loading
   const [inputs, setInputs] = useState({})
   const [rollback, setRollback] = useState(true)
+  const [trackData, setTrackData] = useState(true)
+  const [ranTracked, setRanTracked] = useState(false)
   const [loadError, setLoadError] = useState('')
   const [running, setRunning] = useState(false)
   const [runError, setRunError] = useState('')
@@ -93,6 +96,7 @@ export default function DebugPanel({ workspaceId, obj, initial, onBack, onOpenIn
         name: obj.name,
         rollback,
         maxRows: 500,
+        trackData: rollback && trackData,
         params: (params || []).filter(p => !p.unsupported).map(p => ({
           name: p.name,
           value: inputs[p.name]?.value ?? '',
@@ -110,7 +114,16 @@ export default function DebugPanel({ workspaceId, obj, initial, onBack, onOpenIn
         messages: res.messages || [],
         outputs: res.outputs || [],
         notes: res.notes || [],
+        changes: (res.changes || []).map(c => ({
+          ...c,
+          columns: c.columns || [],
+          inserted: c.inserted || [],
+          deleted: c.deleted || [],
+          updated: (c.updated || []).map(u => ({ ...u, changes: u.changes || [] })),
+          skippedColumns: c.skippedColumns || [],
+        })),
       })
+      setRanTracked(rollback && trackData)
       setShowForm(false)
       setTab('exec')
     } catch (e) {
@@ -168,7 +181,8 @@ export default function DebugPanel({ workspaceId, obj, initial, onBack, onOpenIn
         </p>
       )}
       {showForm && (
-        <ParamForm params={params} inputs={inputs} patch={patch} rollback={rollback} setRollback={setRollback} />
+        <ParamForm params={params} inputs={inputs} patch={patch} rollback={rollback} setRollback={setRollback}
+                   trackData={trackData} setTrackData={setTrackData} />
       )}
 
       {running && (
@@ -182,8 +196,11 @@ export default function DebugPanel({ workspaceId, obj, initial, onBack, onOpenIn
         <>
           <Summary result={result} onOpenBatch={onOpenInQuery ? () => onOpenInQuery(result.batch, `Depurar ${obj.name}`) : null} />
           <div className="flex items-center gap-1 flex-shrink-0">
-            {TABS.map(t => {
-              const badge = t.id === 'results' ? result.sets.length : t.id === 'messages' ? result.messages.length : null
+            {TABS.filter(t => t.id !== 'changes' || ranTracked || result.changes.length > 0).map(t => {
+              const badge = t.id === 'results' ? result.sets.length
+                : t.id === 'messages' ? result.messages.length
+                : t.id === 'changes' ? result.changes.filter(c => c.insertedCount + c.deletedCount + c.updatedCount > 0).length
+                : null
               return (
                 <button key={t.id} onClick={() => setTab(t.id)}
                         className={clsx('px-3 py-1.5 rounded-md text-xs font-medium transition-all',
@@ -198,6 +215,7 @@ export default function DebugPanel({ workspaceId, obj, initial, onBack, onOpenIn
             {tab === 'results' && <ResultsView sets={result.sets} />}
             {tab === 'messages' && <MessagesView messages={result.messages} />}
             {tab === 'output' && <OutputView result={result} />}
+            {tab === 'changes' && <ChangesView changes={result.changes} tracked={ranTracked} />}
           </div>
         </>
       )}
@@ -207,7 +225,7 @@ export default function DebugPanel({ workspaceId, obj, initial, onBack, onOpenIn
 
 // ------------------------------------------------------------------ parameters
 
-function ParamForm({ params, inputs, patch, rollback, setRollback }) {
+function ParamForm({ params, inputs, patch, rollback, setRollback, trackData, setTrackData }) {
   if (params === null) {
     return <div className="flex items-center gap-2 text-slate-500 text-xs"><Loader2 className="w-4 h-4 animate-spin" /> Leyendo parámetros…</div>
   }
@@ -269,6 +287,18 @@ function ParamForm({ params, inputs, patch, rollback, setRollback }) {
           <span className="block text-[11px] text-slate-500">
             El procedimiento se ejecuta de verdad. El rollback no deshace los incrementos de IDENTITY ni efectos externos
             (correos, servidores vinculados, escrituras en variables de tabla).
+          </span>
+        </span>
+      </label>
+      <label className={clsx('flex items-start gap-2 px-4 py-2.5 border-t border-surface-700/50 text-xs select-none',
+        rollback ? 'text-slate-300 cursor-pointer' : 'text-slate-600')}>
+        <input type="checkbox" className="mt-0.5" disabled={!rollback} checked={rollback && trackData}
+               onChange={e => setTrackData(e.target.checked)} />
+        <span>
+          Mostrar qué datos cambió el procedimiento (antes y después).
+          <span className="block text-[11px] text-slate-500">
+            Compara las tablas en las que escribió (hasta 20.000 filas cada una). Mantiene la transacción abierta unos segundos
+            mientras se recopila la traza, así que puede bloquear a otros usuarios de esas tablas. Requiere ROLLBACK.
           </span>
         </span>
       </label>
@@ -553,5 +583,114 @@ function OutputView({ result }) {
         ))}
       </tbody>
     </table>
+  )
+}
+
+// --------------------------------------------------------------------- data changes
+
+const Cell = ({ v }) => (v === null || v === undefined ? <span className="text-slate-600 italic">NULL</span> : v === '' ? <span className="text-slate-600">(vacío)</span> : v)
+
+function ChangesView({ changes, tracked }) {
+  if (changes.length === 0) {
+    return (
+      <p className="text-sm text-slate-500 p-4">
+        {tracked
+          ? 'El procedimiento no escribió en ninguna tabla de usuario (o no se pudo comparar; revisa los avisos de arriba).'
+          : 'No se compararon datos.'}
+      </p>
+    )
+  }
+  return (
+    <div className="h-full overflow-auto flex flex-col gap-4 pr-1">
+      {changes.map(c => <TableChange key={c.table} c={c} />)}
+    </div>
+  )
+}
+
+function Chip({ n, label, cls }) {
+  if (!n) return null
+  return <span className={clsx('px-2 py-0.5 rounded-full border text-[11px]', cls)}>{n.toLocaleString()} {label}</span>
+}
+
+function RowGrid({ columns, rows, tone }) {
+  return (
+    <div className="overflow-auto rounded-lg border border-surface-600" style={{ maxHeight: '28vh' }}>
+      <table className="text-xs border-collapse">
+        <thead className="sticky top-0"><tr style={{ background: '#111B2C' }}>
+          {columns.map(col => <th key={col} className="px-3 py-1 text-left font-medium text-slate-300 whitespace-nowrap border-r border-surface-700/60">{col}</th>)}
+        </tr></thead>
+        <tbody>
+          {rows.map((row, r) => (
+            <tr key={r} className={tone}>
+              {row.map((cell, i) => <td key={i} className="px-3 py-1 font-mono text-slate-200 whitespace-nowrap border-r border-surface-700/60"><Cell v={cell} /></td>)}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+function TableChange({ c }) {
+  const total = c.insertedCount + c.deletedCount + c.updatedCount
+  return (
+    <div className="rounded-xl border border-surface-600 overflow-hidden" style={{ background: '#18191A' }}>
+      <div className="flex items-center gap-2 px-3 py-2 border-b border-surface-700/60 flex-wrap">
+        <span className="font-mono text-sm font-semibold text-white">{c.table}</span>
+        <Chip n={c.updatedCount} label="modificada(s)" cls="border-sky-500/40 text-sky-300 bg-sky-500/10" />
+        <Chip n={c.insertedCount} label="insertada(s)" cls="border-emerald-500/40 text-emerald-300 bg-emerald-500/10" />
+        <Chip n={c.deletedCount} label="eliminada(s)" cls="border-red-500/40 text-red-300 bg-red-500/10" />
+        {!c.skipped && total === 0 && <span className="text-[11px] text-slate-500">sin cambios en los datos</span>}
+        <div className="flex-1" />
+        {!c.skipped && <span className="text-[11px] text-slate-500">{c.rowsBefore.toLocaleString()} → {c.rowsAfter.toLocaleString()} filas</span>}
+      </div>
+
+      <div className="p-3 flex flex-col gap-3">
+        {c.skipped && <p className="text-xs text-amber-300">{c.skipped}</p>}
+        {c.skippedColumns.length > 0 && (
+          <p className="text-[11px] text-slate-500">Columnas no comparadas (tipo no soportado): {c.skippedColumns.join(', ')}</p>
+        )}
+
+        {c.updated.length > 0 && (
+          <div>
+            <p className="text-[11px] text-sky-300 mb-1">Filas modificadas{c.updatedCount > c.updated.length ? ` (mostrando ${c.updated.length} de ${c.updatedCount})` : ''}</p>
+            <div className="overflow-auto rounded-lg border border-surface-600" style={{ maxHeight: '32vh' }}>
+              <table className="text-xs border-collapse w-full">
+                <thead className="sticky top-0"><tr style={{ background: '#111B2C' }} className="text-left text-slate-300">
+                  <th className="px-3 py-1 font-medium">{c.primaryKey.length ? 'Llave' : 'Fila'}</th>
+                  <th className="px-3 py-1 font-medium">Columna</th>
+                  <th className="px-3 py-1 font-medium">Antes</th>
+                  <th className="px-3 py-1 font-medium">Después</th>
+                </tr></thead>
+                <tbody>
+                  {c.updated.map((u, i) => u.changes.map((ch, j) => (
+                    <tr key={`${i}-${j}`} className={clsx('border-t border-surface-700/40', i % 2 && 'bg-surface-800/30')}>
+                      {j === 0 && <td rowSpan={u.changes.length} className="px-3 py-1 font-mono text-slate-300 align-top whitespace-nowrap">{u.key}</td>}
+                      <td className="px-3 py-1 font-mono text-slate-200 whitespace-nowrap">{ch.column}</td>
+                      <td className="px-3 py-1 font-mono bg-red-500/10 text-red-200"><Cell v={ch.before} /></td>
+                      <td className="px-3 py-1 font-mono bg-emerald-500/10 text-emerald-200"><Cell v={ch.after} /></td>
+                    </tr>
+                  )))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {c.inserted.length > 0 && (
+          <div>
+            <p className="text-[11px] text-emerald-300 mb-1">Filas insertadas{c.insertedCount > c.inserted.length ? ` (mostrando ${c.inserted.length} de ${c.insertedCount})` : ''}</p>
+            <RowGrid columns={c.columns} rows={c.inserted} tone="bg-emerald-500/10" />
+          </div>
+        )}
+
+        {c.deleted.length > 0 && (
+          <div>
+            <p className="text-[11px] text-red-300 mb-1">Filas eliminadas{c.deletedCount > c.deleted.length ? ` (mostrando ${c.deleted.length} de ${c.deletedCount})` : ''}</p>
+            <RowGrid columns={c.columns} rows={c.deleted} tone="bg-red-500/10" />
+          </div>
+        )}
+      </div>
+    </div>
   )
 }
