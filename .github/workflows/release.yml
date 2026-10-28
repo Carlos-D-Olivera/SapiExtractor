@@ -71,7 +71,11 @@ jobs:
           # After an automatic merge, do not rebuild a version that is already published.
           if ('${{ github.event_name }}' -eq 'workflow_run') {
             $assets = @(gh release view $tag --repo $env:REPO --json assets --jq '.assets[].name' 2>$null)
-            if ($LASTEXITCODE -eq 0 -and $assets -contains 'SapiExtractor.exe') {
+            $released = ($LASTEXITCODE -eq 0 -and $assets -contains 'SapiExtractor.exe')
+            # "release not found" is the normal case here; do not let gh's exit code 1
+            # become the exit code of the whole step (pwsh uses the last native command's).
+            $global:LASTEXITCODE = 0
+            if ($released) {
               Write-Host "The release $tag already has SapiExtractor.exe: nothing to do."
               "skip=true" >> $env:GITHUB_OUTPUT
               exit 0
@@ -83,6 +87,7 @@ jobs:
           $version = $tag -replace '^[vV]\.?', ''
           if ($version -notmatch '^\d+\.\d+\.\d+') { throw "The tag '$tag' is not a version number (expected V.X.Y.Z)" }
           "version=$version" >> $env:GITHUB_OUTPUT
+          exit 0
 
       - name: Use the tagged commit
         if: steps.tag.outputs.skip != 'true'
