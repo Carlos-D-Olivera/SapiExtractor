@@ -18,8 +18,9 @@ const EMPTY_FORM = {
   rememberPassword: true,
 }
 
-export default function ConnectionDialog({ workspaceId = '1', onConnect, onClose, savedConnections, onDeleteConnection }) {
-  const [form, setForm] = useState(EMPTY_FORM)
+export default function ConnectionDialog({ workspaceId = '1', initialForm, onConnect, onClose, savedConnections, onDeleteConnection }) {
+  // initialForm (e.g. a connection from the previous session) prefills everything except the password.
+  const [form, setForm] = useState(() => (initialForm ? { ...EMPTY_FORM, ...initialForm, password: '', rememberPassword: true } : EMPTY_FORM))
   const [showPassword, setShowPassword] = useState(false)
   const [databases, setDatabases] = useState([])
   const [loadingDbs, setLoadingDbs] = useState(false)

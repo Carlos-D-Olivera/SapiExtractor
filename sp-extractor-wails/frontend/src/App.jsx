@@ -5,6 +5,7 @@ import {
 import clsx from 'clsx'
 
 import ConnectionDialog from './components/ConnectionDialog'
+import RestoreSessionModal from './components/RestoreSessionModal'
 import WorkspaceView, { DB_LABELS } from './components/WorkspaceView'
 import appIcon from './assets/SpExtractor.ico'
 
@@ -26,6 +27,15 @@ export default function App() {
   const [activeId, setActiveId] = useState('1')
   const [showConnDialog, setShowConnDialog] = useState(false)
   const [savedConns, setSavedConns] = useState([])
+  const [dialogInitial, setDialogInitial] = useState(null)   // prefill for the connection dialog (reconnect)
+  const [sessionReady, setSessionReady] = useState(false)    // the previous session was dealt with; saving may start
+  const [restorePrompt, setRestorePrompt] = useState(null)   // saved session waiting for the user's decision
+  const [restoring, setRestoring] = useState(false)
+
+  const openConnDialog = useCallback((initial) => {
+    setDialogInitial(initial || null)
+    setShowConnDialog(true)
+  }, [])
 
   // Load saved connection history
   const loadSavedConns = useCallback(async () => {
@@ -41,6 +51,106 @@ export default function App() {
   }, [loadSavedConns])
 
   const activeWs = workspaces.find(w => w.id === activeId) || workspaces[0]
+
+  // ---- Previous session: offer to restore it, and keep it saved ----
+  const sameConn = (c, w) => c.dbType === w.dbType && c.host === w.host && c.port === w.port && c.dbName === w.dbName && c.user === w.user
+  const hasPassword = useCallback((w) => savedConns.some(c => sameConn(c, w) && c.rememberPassword && c.passwordBase64), [savedConns])
+
+  const restoreSession = useCallback(async (session, selectedIds) => {
+    const api = await go()
+    const saved = (await api.LoadConnections()) || []
+    const rebuilt = await Promise.all((session.workspaces || []).map(async (w) => {
+      const base = { id: w.id, connInfo: null, pendingConn: null, view: 'objects' }
+      if (!w.dbType || !w.dbName) return base
+      const conn = { dbType: w.dbType, host: w.host, port: w.port, dbName: w.dbName, user: w.user }
+      if (!selectedIds.has(w.id)) return base
+      const match = saved.find(c => sameConn(c, w) && c.rememberPassword && c.passwordBase64)
+      if (!match) return { ...base, pendingConn: conn }
+      const info = { ...conn, password: atob(match.passwordBase64), rememberPassword: true }
+      try {
+        await api.Connect(w.id, info)
+        const view = w.view === 'query' || (w.view === 'trace' && w.dbType === 'SQL_SERVER') ? w.view : 'objects'
+        return { ...base, connInfo: info, view }
+      } catch {
+        return { ...base, pendingConn: conn } // the server is unreachable or the password changed
+      }
+    }))
+    const list = rebuilt.sort((a, b) => Number(a.id) - Number(b.id))
+    if (list.length > 0) {
+      setWorkspaces(list)
+      setActiveId(list.some(w => w.id === session.activeId) ? session.activeId : list[0].id)
+    }
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const api = await go()
+        const [session, settings] = await Promise.all([api.LoadSession(), api.GetPersistenceSettings()])
+        if (cancelled) return
+        const withDb = (session?.workspaces || []).filter(w => w.dbType && w.dbName)
+        if (withDb.length === 0) { setSessionReady(true); return }
+        if (settings?.autoRestore) {
+          await restoreSession(session, new Set(withDb.map(w => w.id)))
+          if (!cancelled) setSessionReady(true)
+        } else {
+          setRestorePrompt(session)
+        }
+      } catch {
+        if (!cancelled) setSessionReady(true)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [restoreSession])
+
+  const handleRestore = async (selectedIds, always) => {
+    setRestoring(true)
+    try {
+      if (always) {
+        const api = await go()
+        const settings = await api.GetPersistenceSettings()
+        await api.SetPersistenceSettings({ ...settings, autoRestore: true })
+      }
+      await restoreSession(restorePrompt, selectedIds)
+    } finally {
+      setRestoring(false)
+      setRestorePrompt(null)
+      setSessionReady(true)
+    }
+  }
+
+  const handleSkipRestore = () => {
+    setRestorePrompt(null)
+    setSessionReady(true)
+  }
+
+  // Remember the layout (never the passwords) so it can be restored next time.
+  useEffect(() => {
+    if (!sessionReady) return
+    const id = setTimeout(async () => {
+      try {
+        const api = await go()
+        await api.SaveSession({
+          activeId,
+          savedAt: 0,
+          workspaces: workspaces.map(w => {
+            const c = w.connInfo || w.pendingConn
+            return {
+              id: w.id,
+              view: w.view,
+              dbType: c?.dbType || '',
+              host: c?.host || '',
+              port: c?.port || '',
+              dbName: c?.dbName || '',
+              user: c?.user || '',
+            }
+          }),
+        })
+      } catch { /* not critical */ }
+    }, 500)
+    return () => clearTimeout(id)
+  }, [sessionReady, workspaces, activeId])
 
   const workspacesRef = useRef(workspaces)
   workspacesRef.current = workspaces
@@ -111,7 +221,7 @@ export default function App() {
   }
 
   const handleWorkspaceConnect = async (info) => {
-    setWorkspaces(prev => prev.map(w => w.id === activeId ? { ...w, connInfo: info, view: 'objects' } : w))
+    setWorkspaces(prev => prev.map(w => w.id === activeId ? { ...w, connInfo: info, pendingConn: null, view: 'objects' } : w))
     setShowConnDialog(false)
 
     try {
@@ -136,7 +246,7 @@ export default function App() {
       await api.Disconnect(activeId)
     } catch { /* ignore */ }
 
-    setWorkspaces(prev => prev.map(w => w.id === activeId ? { ...w, connInfo: null, view: 'objects' } : w))
+    setWorkspaces(prev => prev.map(w => w.id === activeId ? { ...w, connInfo: null, pendingConn: null, view: 'objects' } : w))
   }
 
   const handleDeleteSaved = async (conn) => {
@@ -236,9 +346,9 @@ export default function App() {
             </button>
           </div>
         ) : (
-          <button onClick={() => setShowConnDialog(true)} className="btn-primary">
+          <button onClick={() => openConnDialog(activeWs?.pendingConn)} className="btn-primary">
             <Plug className="w-3.5 h-3.5" />
-            Connect
+            {activeWs?.pendingConn ? 'Reconectar' : 'Connect'}
           </button>
         )}
       </header>
@@ -253,7 +363,8 @@ export default function App() {
             connInfo={ws.connInfo}
             view={ws.view}
             setView={(newView) => updateWorkspaceView(ws.id, newView)}
-            onOpenConnDialog={() => setShowConnDialog(true)}
+            pendingConn={ws.pendingConn}
+            onOpenConnDialog={openConnDialog}
           />
         ))}
       </div>
@@ -261,11 +372,24 @@ export default function App() {
       {/* Connection dialog for the active workspace */}
       {showConnDialog && (
         <ConnectionDialog
+          key={`${activeId}-${dialogInitial?.dbName || ''}`}
           workspaceId={activeId}
+          initialForm={dialogInitial}
           onConnect={handleWorkspaceConnect}
           onClose={() => setShowConnDialog(false)}
           savedConnections={savedConns}
           onDeleteConnection={handleDeleteSaved}
+        />
+      )}
+
+      {/* Offer the previous session */}
+      {restorePrompt && (
+        <RestoreSessionModal
+          workspaces={(restorePrompt.workspaces || []).filter(w => w.dbType && w.dbName)}
+          hasPassword={hasPassword}
+          restoring={restoring}
+          onRestore={handleRestore}
+          onSkip={handleSkipRestore}
         />
       )}
     </div>

@@ -55,6 +55,7 @@ export default function WorkspaceView({
   connInfo,
   view,
   setView,
+  pendingConn,
   onOpenConnDialog,
 }) {
   const [objType, setObjType] = useState('STORED_PROCEDURE')
@@ -636,10 +637,17 @@ export default function WorkspaceView({
                 </div>
                 <div className="text-center">
                   <h2 className="text-lg font-semibold text-white mb-1">Espacio de trabajo {workspaceId} sin conexión</h2>
-                  <p className="text-sm text-slate-500 mb-4">Conéctate a una base de datos para comenzar a explorar y consultar.</p>
-                  <button onClick={onOpenConnDialog} className="btn-primary">
+                  {pendingConn ? (
+                    <p className="text-sm text-slate-500 mb-4">
+                      En tu sesión anterior este espacio estaba conectado a <span className="text-slate-300 font-medium">{pendingConn.dbName}</span>{' '}
+                      ({pendingConn.host}). Tus consultas de esa base se recuperan al reconectar.
+                    </p>
+                  ) : (
+                    <p className="text-sm text-slate-500 mb-4">Conéctate a una base de datos para comenzar a explorar y consultar.</p>
+                  )}
+                  <button onClick={() => onOpenConnDialog(pendingConn || null)} className="btn-primary">
                     <Plug className="w-4 h-4" />
-                    Conectar a base de datos
+                    {pendingConn ? 'Reconectar' : 'Conectar a base de datos'}
                   </button>
                 </div>
               </div>
