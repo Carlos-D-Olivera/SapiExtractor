@@ -1,10 +1,11 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
-import { Play, Plus, X, Loader2, AlertCircle, Ban, Clock, Table2, Trash2, Sparkles, FileCode2, PanelBottomClose, PanelBottomOpen, Check } from 'lucide-react'
+import { Play, Plus, X, Loader2, AlertCircle, Ban, Clock, Table2, Trash2, Sparkles, FileCode2, PanelBottomClose, PanelBottomOpen, Check, History, RotateCcw } from 'lucide-react'
 import clsx from 'clsx'
 import SqlEditor, { getIdentifierAtCursor, stripQuotes } from './SqlEditor'
 import AutocompletesModal, { getStoredAutocompletes, loadStoredAutocompletes, saveStoredAutocompletes } from './AutocompletesModal'
 import InsertScriptModal from './InsertScriptModal'
 import StructuredViewerModal from './StructuredViewerModal'
+import QueryHistoryModal, { titleFromSql } from './QueryHistoryModal'
 import { detectType } from '../utils/structured'
 
 let tabSeq = 0
@@ -83,6 +84,11 @@ export default function QueryWorkspace({
   const lastNonce = useRef(incomingSql?.nonce)
   const [autocompletes, setAutocompletes] = useState(() => getStoredAutocompletes())
   const [showAutocompletesModal, setShowAutocompletesModal] = useState(false)
+  const [closedTabs, setClosedTabs] = useState([])      // recently closed tabs of this database
+  const [showClosed, setShowClosed] = useState(false)
+  const [showHistory, setShowHistory] = useState(false)
+  const [stateLoaded, setStateLoaded] = useState(false) // saved tabs have been read; autosave may start
+  const lastSaved = useRef('')
 
   const changeFontSize = useCallback((delta) => {
     setFontSize(prev => {
@@ -217,6 +223,62 @@ export default function QueryWorkspace({
     setActiveId(t.id)
   }, [incomingSql])
 
+  // Tabs are kept per database: restore the ones saved last time.
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const st = await (await go()).LoadQueryState(workspaceId)
+        if (cancelled) return
+        if (st?.tabs?.length) {
+          const restored = st.tabs.map(t => ({ ...newTab(), id: t.id, title: t.title || 'Consulta', sql: t.sql || '', lastSql: t.sql || '' }))
+          restored.forEach(t => {
+            const n = /^Consulta (\d+)$/.exec(t.title)
+            if (n) tabSeq = Math.max(tabSeq, Number(n[1]))
+          })
+          setTabs(restored)
+          setActiveId(restored.some(t => t.id === st.activeId) ? st.activeId : restored[0].id)
+          lastSaved.current = JSON.stringify({ tabs: st.tabs.map(t => ({ id: t.id, title: t.title, sql: t.sql })), activeId: st.activeId, closed: st.closed || [] })
+        }
+        setClosedTabs(st?.closed || [])
+      } catch { /* start with an empty tab */ }
+      if (!cancelled) setStateLoaded(true)
+    })()
+    return () => { cancelled = true }
+  }, [workspaceId])
+
+  // Autosave (debounced) whenever tabs or closed tabs change.
+  const pendingSave = useRef(null)
+  const flushSave = useCallback(async () => {
+    const payload = pendingSave.current
+    if (!payload) return
+    pendingSave.current = null
+    const sig = JSON.stringify(payload)
+    if (sig === lastSaved.current) return
+    lastSaved.current = sig
+    try { await (await go()).SaveQueryState(workspaceId, { ...payload, updatedAt: 0 }) } catch { /* not critical */ }
+  }, [workspaceId])
+
+  useEffect(() => {
+    if (!stateLoaded) return
+    pendingSave.current = {
+      tabs: tabs.map(t => ({ id: t.id, title: t.title, sql: t.sql })),
+      activeId,
+      closed: closedTabs,
+    }
+    const id = setTimeout(flushSave, 800)
+    return () => clearTimeout(id)
+  }, [stateLoaded, tabs, activeId, closedTabs, flushSave])
+
+  // Do not lose the last keystrokes when the window closes or the view is replaced.
+  useEffect(() => {
+    window.addEventListener('beforeunload', flushSave)
+    return () => {
+      window.removeEventListener('beforeunload', flushSave)
+      flushSave()
+    }
+  }, [flushSave])
+
   const active = tabs.find(t => t.id === activeId) || tabs[0]
 
   const patchTab = useCallback((id, patch) => {
@@ -230,15 +292,28 @@ export default function QueryWorkspace({
   }
 
   const closeTab = (id) => {
-    setTabs(prev => {
-      if (prev.length === 1) return prev
-      const idx = prev.findIndex(t => t.id === id)
-      const next = prev.filter(t => t.id !== id)
-      if (id === activeId) {
-        setActiveId(next[Math.max(0, idx - 1)].id)
-      }
-      return next
-    })
+    if (tabs.length === 1) return
+    const idx = tabs.findIndex(t => t.id === id)
+    if (idx < 0) return
+    const closing = tabs[idx]
+    const next = tabs.filter(t => t.id !== id)
+    // Keep what was written so it can be reopened later.
+    if (closing.sql.trim()) {
+      setClosedTabs(prev => [
+        { id: closing.id, title: closing.title, sql: closing.sql, closedAt: Date.now() },
+        ...prev.filter(c => c.id !== closing.id),
+      ].slice(0, 50))
+    }
+    if (id === activeId) setActiveId(next[Math.max(0, idx - 1)].id)
+    setTabs(next)
+  }
+
+  const reopenClosed = (c) => {
+    const t = { ...newTab(), title: c.title, sql: c.sql }
+    setTabs(prev => [...prev, t])
+    setActiveId(t.id)
+    setClosedTabs(prev => prev.filter(x => x.id !== c.id))
+    setShowClosed(false)
   }
 
   // Runs the selected text when there is a selection, otherwise the whole editor.
@@ -492,6 +567,47 @@ export default function QueryWorkspace({
               </span>
             </button>
             <button
+              onClick={() => setShowHistory(true)}
+              className="btn-secondary text-xs py-1.5 px-3 flex items-center gap-1.5"
+              title="Historial de consultas ejecutadas en esta base de datos"
+            >
+              <History className="w-3.5 h-3.5 text-sky-300" />
+              Historial
+            </button>
+            <div className="relative">
+              <button
+                onClick={() => setShowClosed(v => !v)}
+                disabled={closedTabs.length === 0}
+                className="btn-secondary text-xs py-1.5 px-3 flex items-center gap-1.5"
+                title="Pestañas cerradas recientemente"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                Cerradas
+                {closedTabs.length > 0 && (
+                  <span className="px-1.5 rounded-full text-[10px] bg-sky-400/20 text-sky-300 font-mono font-bold">{closedTabs.length}</span>
+                )}
+              </button>
+              {showClosed && closedTabs.length > 0 && (
+                <>
+                  <div className="fixed inset-0 z-30" onClick={() => setShowClosed(false)} />
+                  <div className="absolute left-0 top-full mt-1 z-40 w-80 max-h-80 overflow-auto rounded-xl border border-surface-600 shadow-2xl shadow-black/60 py-1"
+                       style={{ background: '#111B2C' }}>
+                    {closedTabs.map(c => (
+                      <button key={c.id} onClick={() => reopenClosed(c)}
+                              className="w-full text-left px-3 py-1.5 hover:bg-surface-700/50 block">
+                        <span className="block text-xs text-slate-200 truncate">{c.title}</span>
+                        <span className="block text-[10px] font-mono text-slate-500 truncate">{c.sql.replace(/\s+/g, ' ').slice(0, 70)}</span>
+                      </button>
+                    ))}
+                    <button onClick={() => { setClosedTabs([]); setShowClosed(false) }}
+                            className="w-full text-left px-3 py-1.5 text-[11px] text-slate-500 hover:text-red-400 border-t border-surface-700/60">
+                      Vaciar lista
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+            <button
               onClick={toggleResults}
               className={clsx(
                 'btn-secondary text-xs py-1.5 px-3 flex items-center gap-1.5',
@@ -610,6 +726,19 @@ export default function QueryWorkspace({
         />
       )}
 
+      {/* Query history */}
+      {showHistory && (
+        <QueryHistoryModal
+          workspaceId={workspaceId}
+          dbLabel={connLabel || 'esta base de datos'}
+          onClose={() => setShowHistory(false)}
+          onOpen={(sqlText, autoRun) => {
+            setShowHistory(false)
+            openQueryInNewTab(sqlText, titleFromSql(sqlText), autoRun)
+          }}
+        />
+      )}
+
       {/* JSON / XML cell viewer */}
       {viewer && (
         <StructuredViewerModal
@@ -697,7 +826,7 @@ function ResultGrid({ set, index, total, fontSize, onInsertScript, onOpenCell })
           title="Generar un script INSERT con las filas de este resultado"
         >
           <FileCode2 className="w-3 h-3" />
-          Script INSERT
+          Script As Insert
         </button>
       </div>
       {set.truncated && (

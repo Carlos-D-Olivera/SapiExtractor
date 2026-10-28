@@ -4,6 +4,7 @@ import {db} from '../models';
 import {debug} from '../models';
 import {config} from '../models';
 import {main} from '../models';
+import {store} from '../models';
 import {trace} from '../models';
 
 export function CancelExport(arg1:string):Promise<void>;
@@ -12,6 +13,8 @@ export function CancelQuery(arg1:string):Promise<void>;
 
 export function CleanupTraceSessions(arg1:string):Promise<number>;
 
+export function ClearHistory(arg1:string):Promise<void>;
+
 export function Connect(arg1:string,arg2:db.ConnInfo):Promise<void>;
 
 export function CountObjects(arg1:string,arg2:string,arg3:string):Promise<number>;
@@ -19,6 +22,8 @@ export function CountObjects(arg1:string,arg2:string,arg3:string):Promise<number
 export function DebugProcedure(arg1:string,arg2:debug.Request):Promise<debug.Result>;
 
 export function DeleteConnection(arg1:config.SavedConnection):Promise<void>;
+
+export function DeleteHistoryEntry(arg1:string,arg2:string):Promise<void>;
 
 export function Disconnect(arg1:string):Promise<void>;
 
@@ -34,6 +39,8 @@ export function GetDefinition(arg1:string,arg2:db.DbObject):Promise<db.DbObject>
 
 export function GetObjectText(arg1:string,arg2:db.DbObject):Promise<string>;
 
+export function GetPersistenceSettings():Promise<store.Settings>;
+
 export function GetProcParameters(arg1:string,arg2:string,arg3:string):Promise<Array<debug.Param>>;
 
 export function GetSchemaModel(arg1:string,arg2:string,arg3:string,arg4:number):Promise<db.SchemaModel>;
@@ -42,11 +49,17 @@ export function IsConnected(arg1:string):Promise<boolean>;
 
 export function ListDatabases(arg1:db.ConnInfo):Promise<Array<string>>;
 
+export function ListHistory(arg1:string,arg2:string,arg3:boolean,arg4:number):Promise<store.HistoryPage>;
+
 export function ListObjects(arg1:string,arg2:string,arg3:string,arg4:number):Promise<Array<db.DbObject>>;
 
 export function LoadAutoCompletes():Promise<Array<config.AutoCompleteItem>>;
 
 export function LoadConnections():Promise<Array<config.SavedConnection>>;
+
+export function LoadQueryState(arg1:string):Promise<store.QueryState>;
+
+export function LoadSession():Promise<store.Session>;
 
 export function OpenObject(arg1:string,arg2:db.DbObject):Promise<void>;
 
@@ -60,9 +73,15 @@ export function SaveConnection(arg1:config.SavedConnection):Promise<void>;
 
 export function SaveObject(arg1:string,arg2:db.DbObject):Promise<string>;
 
+export function SaveQueryState(arg1:string,arg2:store.QueryState):Promise<void>;
+
 export function SaveScript(arg1:string,arg2:string):Promise<string>;
 
+export function SaveSession(arg1:store.Session):Promise<void>;
+
 export function SearchTables(arg1:string,arg2:string,arg3:number):Promise<Array<db.DbObject>>;
+
+export function SetPersistenceSettings(arg1:store.Settings):Promise<void>;
 
 export function StartTrace(arg1:string,arg2:trace.Options):Promise<void>;
 

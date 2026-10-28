@@ -162,7 +162,7 @@ export default function InsertScriptModal({ workspaceId = '1', set, sql, dbType,
               <FileCode2 className="w-4 h-4 text-brand-light" />
             </div>
             <div>
-              <h2 className="text-sm font-semibold text-white">Script INSERT</h2>
+              <h2 className="text-sm font-semibold text-white">Script As Insert</h2>
               <p className="text-xs text-slate-500">
                 Genera INSERT a partir de {rows.length} fila(s) del resultado
               </p>
