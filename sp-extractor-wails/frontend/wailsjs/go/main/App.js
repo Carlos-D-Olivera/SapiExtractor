@@ -10,6 +10,10 @@ export function CancelQuery(arg1) {
   return window['go']['main']['App']['CancelQuery'](arg1);
 }
 
+export function CheckForUpdate() {
+  return window['go']['main']['App']['CheckForUpdate']();
+}
+
 export function CleanupTraceSessions(arg1) {
   return window['go']['main']['App']['CleanupTraceSessions'](arg1);
 }
@@ -58,6 +62,10 @@ export function GenerateTableScripts(arg1, arg2, arg3) {
   return window['go']['main']['App']['GenerateTableScripts'](arg1, arg2, arg3);
 }
 
+export function GetAppVersion() {
+  return window['go']['main']['App']['GetAppVersion']();
+}
+
 export function GetDefinition(arg1, arg2) {
   return window['go']['main']['App']['GetDefinition'](arg1, arg2);
 }
@@ -76,6 +84,10 @@ export function GetProcParameters(arg1, arg2, arg3) {
 
 export function GetSchemaModel(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['GetSchemaModel'](arg1, arg2, arg3, arg4);
+}
+
+export function InstallUpdate() {
+  return window['go']['main']['App']['InstallUpdate']();
 }
 
 export function IsConnected(arg1) {

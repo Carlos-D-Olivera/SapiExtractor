@@ -1,11 +1,12 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import {
-  Plug, PlugZap
+  Plug, PlugZap, ArrowUpCircle
 } from 'lucide-react'
 import clsx from 'clsx'
 
 import ConnectionDialog from './components/ConnectionDialog'
 import RestoreSessionModal from './components/RestoreSessionModal'
+import UpdateModal from './components/UpdateModal'
 import WorkspaceView, { DB_LABELS } from './components/WorkspaceView'
 import appIcon from './assets/SpExtractor.ico'
 
@@ -31,6 +32,9 @@ export default function App() {
   const [sessionReady, setSessionReady] = useState(false)    // the previous session was dealt with; saving may start
   const [restorePrompt, setRestorePrompt] = useState(null)   // saved session waiting for the user's decision
   const [restoring, setRestoring] = useState(false)
+  const [appVersion, setAppVersion] = useState('')
+  const [updateInfo, setUpdateInfo] = useState(null)         // a newer release found at start-up
+  const [showUpdate, setShowUpdate] = useState(false)
 
   const openConnDialog = useCallback((initial) => {
     setDialogInitial(initial || null)
@@ -103,6 +107,30 @@ export default function App() {
     })()
     return () => { cancelled = true }
   }, [restoreSession])
+
+  // Version label, and a quiet check for a newer release a few seconds after start.
+  useEffect(() => {
+    let cancelled = false
+    let timer
+    ;(async () => {
+      try {
+        const api = await go()
+        const v = await api.GetAppVersion()
+        if (cancelled) return
+        setAppVersion(v)
+        if (v === 'dev') return
+        const settings = await api.GetPersistenceSettings()
+        if (!settings?.checkUpdates) return
+        timer = setTimeout(async () => {
+          try {
+            const info = await api.CheckForUpdate()
+            if (!cancelled && info?.available && info.latest !== settings.skippedVersion) setUpdateInfo(info)
+          } catch { /* offline or rate limited: stay quiet */ }
+        }, 3000)
+      } catch { /* ignore */ }
+    })()
+    return () => { cancelled = true; clearTimeout(timer) }
+  }, [])
 
   const handleRestore = async (selectedIds, always) => {
     setRestoring(true)
@@ -271,7 +299,18 @@ export default function App() {
           </div>
           <div>
             <h1 className="text-sm font-bold text-white tracking-tight">SapiExtractor</h1>
-            <p className="text-[10px] text-slate-500 -mt-0.5">Database Object Extractor</p>
+            <p className="text-[10px] text-slate-500 -mt-0.5">
+              Database Object Extractor
+              {appVersion && (
+                <button
+                  onClick={() => setShowUpdate(true)}
+                  className="ml-1.5 text-slate-500 hover:text-brand-light underline decoration-dotted underline-offset-2"
+                  title="Buscar actualizaciones"
+                >
+                  {appVersion === 'dev' ? 'dev' : `v${appVersion}`}
+                </button>
+              )}
+            </p>
           </div>
         </div>
 
@@ -327,6 +366,18 @@ export default function App() {
 
         <div className="flex-1" />
 
+        {/* A newer version is available */}
+        {updateInfo && (
+          <button
+            onClick={() => setShowUpdate(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-emerald-600/20 border border-emerald-500/50 text-emerald-300 hover:bg-emerald-600/30 transition-all"
+            title={`Hay una versión nueva (v${updateInfo.latest})`}
+          >
+            <ArrowUpCircle className="w-3.5 h-3.5" />
+            Actualizar a v{updateInfo.latest}
+          </button>
+        )}
+
         {/* Connection status (active workspace) */}
         {activeWs?.connInfo ? (
           <div className="flex items-center gap-3">
@@ -379,6 +430,16 @@ export default function App() {
           onClose={() => setShowConnDialog(false)}
           savedConnections={savedConns}
           onDeleteConnection={handleDeleteSaved}
+        />
+      )}
+
+      {/* Updates */}
+      {showUpdate && (
+        <UpdateModal
+          version={appVersion}
+          info={updateInfo}
+          onClose={() => setShowUpdate(false)}
+          onSkipped={() => setUpdateInfo(null)}
         />
       )}
 

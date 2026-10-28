@@ -19,6 +19,7 @@ import (
 	"sp-extractor-wails/pkg/db/extractors"
 	"sp-extractor-wails/pkg/db/scriptgen"
 	"sp-extractor-wails/pkg/store"
+	"sp-extractor-wails/pkg/update"
 )
 
 // WorkspaceSession holds the state and active database connection for an individual workspace.
@@ -58,6 +59,10 @@ func NewApp() *App {
 // startup is called by Wails when the application starts.
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
+	// A previous update leaves the old executable next to the new one.
+	if exe, err := update.Executable(); err == nil {
+		go update.CleanupLeftovers(exe)
+	}
 }
 
 // shutdown is called by Wails when the application closes.
