@@ -1,0 +1,140 @@
+name: Auto Merge to Main on Version Bump
+
+on:
+  push:
+    branches:
+      - develop
+    paths:
+      - 'sp-extractor-wails/wails.json'
+
+permissions:
+  contents: write
+
+jobs:
+  merge-develop-to-main:
+    name: Auto Merge Develop into Main
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.AUTOMERGE_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - name: Check version change in wails.json
+        id: check_version
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          WAILS_FILE="sp-extractor-wails/wails.json"
+          if [ ! -f "$WAILS_FILE" ]; then
+            echo "Error: $WAILS_FILE no existe."
+            exit 1
+          fi
+
+          # 1. Leer versión actual desde wails.json
+          NEW_VERSION=$(jq -r '.info.productVersion // empty' "$WAILS_FILE")
+          if [ -z "$NEW_VERSION" ]; then
+            echo "Error: .info.productVersion no se encontró o está vacío en $WAILS_FILE"
+            exit 1
+          fi
+
+          # 2. Obtener la versión anterior antes de este push
+          OLD_JSON=""
+          if [ -n "$BEFORE_SHA" ] && [ "$BEFORE_SHA" != "0000000000000000000000000000000000000000" ]; then
+            OLD_JSON=$(git show "${BEFORE_SHA}:${WAILS_FILE}" 2>/dev/null || true)
+          fi
+
+          # Fallback al commit previo HEAD~1 si no se obtuvo por BEFORE_SHA
+          if [ -z "$OLD_JSON" ]; then
+            OLD_JSON=$(git show HEAD~1:"${WAILS_FILE}" 2>/dev/null || true)
+          fi
+
+          # Fallback a origin/main si sigue vacío
+          if [ -z "$OLD_JSON" ]; then
+            OLD_JSON=$(git show origin/main:"${WAILS_FILE}" 2>/dev/null || true)
+          fi
+
+          OLD_VERSION=""
+          if [ -n "$OLD_JSON" ]; then
+            OLD_VERSION=$(echo "$OLD_JSON" | jq -r '.info.productVersion // empty' 2>/dev/null || true)
+          fi
+
+          echo "Versión anterior: '$OLD_VERSION'"
+          echo "Versión actual:   '$NEW_VERSION'"
+
+          # 3. Comparar si la versión cambió
+          if [ "$NEW_VERSION" = "$OLD_VERSION" ]; then
+            echo "La versión no ha cambiado. Se omite el merge a main."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # 4. Formatear la versión en el estilo 'V.X.Y.Z'
+          CLEAN_VERSION=$(echo "$NEW_VERSION" | sed -E 's/^[vV]\.?//')
+          FORMATTED_VERSION="V.${CLEAN_VERSION}"
+
+          # 5. Obtener el título del commit que disparó el push
+          RAW_TITLE=$(git log -1 --format=%s "$COMMIT_SHA")
+
+          # Evitar duplicar el prefijo de versión si el commit ya lo incluye
+          if [[ "$RAW_TITLE" =~ ^[vV]\.?[0-9]+(\.[0-9]+)*[[:space:]]*[-:]?[[:space:]]*(.*)$ ]]; then
+            CLEAN_TITLE="${BASH_REMATCH[2]}"
+            if [ -n "$CLEAN_TITLE" ]; then
+              COMMIT_TITLE="$CLEAN_TITLE"
+            else
+              COMMIT_TITLE="$RAW_TITLE"
+            fi
+          else
+            COMMIT_TITLE="$RAW_TITLE"
+          fi
+
+          echo "Versión formateada: '$FORMATTED_VERSION'"
+          echo "Título del commit:  '$COMMIT_TITLE'"
+
+          # Exportar outputs
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+          echo "version<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$FORMATTED_VERSION" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+          echo "title<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$COMMIT_TITLE" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+      - name: Merge develop into main
+        if: steps.check_version.outputs.changed == 'true'
+        env:
+          VERSION: ${{ steps.check_version.outputs.version }}
+          TITLE: ${{ steps.check_version.outputs.title }}
+        run: |
+          if [ "$TITLE" = "$VERSION" ]; then
+            MERGE_MSG="$VERSION"
+          else
+            MERGE_MSG="${VERSION} - ${TITLE}"
+          fi
+
+          echo "Mensaje del commit de merge: $MERGE_MSG"
+
+          # Configurar credenciales del bot de Git
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Asegurar que main está disponible y actualizado
+          git checkout main
+          git pull origin main
+
+          # Realizar el merge de develop con --no-ff para generar el commit con el mensaje formateado
+          git merge --no-ff develop -m "$MERGE_MSG"
+
+          # Enviar los cambios a origin/main
+          git push origin main
+
+          # Crear y subir el tag correspondiente si no existe
+          if ! git rev-parse "$VERSION" >/dev/null 2>&1; then
+            echo "Creando tag $VERSION..."
+            git tag "$VERSION"
+            git push origin "$VERSION"
+          else
+            echo "El tag $VERSION ya existe. Se omite la creación del tag."
+          fi
