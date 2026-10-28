@@ -49,24 +49,45 @@ jobs:
           fetch-tags: true
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
+      - name: Keep the release-notes script (the tagged commit may be older than it)
+        run: |
+          if (Test-Path .github/scripts/release-notes.ps1) {
+            Copy-Item .github/scripts/release-notes.ps1 (Join-Path $env:RUNNER_TEMP 'release-notes.ps1')
+          }
+          exit 0
+
       - name: Decide which tag to build
         id: tag
         run: |
-          switch ('${{ github.event_name }}') {
+          $trigger = '${{ github.event_name }}'
+          switch ($trigger) {
             'workflow_run' {
               $json = Get-Content sp-extractor-wails/wails.json -Raw | ConvertFrom-Json
-              $tag = 'V.' + ($json.info.productVersion -replace '^[vV]\.?', '')
+              $requested = 'V.' + ($json.info.productVersion -replace '^[vV]\.?', '')
             }
-            'release' { $tag = '${{ github.event.release.tag_name }}' }
-            default   { $tag = '${{ inputs.tag }}' }
+            'release' { $requested = '${{ github.event.release.tag_name }}' }
+            default   { $requested = '${{ inputs.tag }}' }
           }
-          Write-Host "Candidate tag: $tag"
+          $requested = "$requested".Trim()
+          Write-Host "Requested tag: '$requested'"
 
-          if (-not (git tag -l $tag)) {
-            Write-Host "The tag $tag does not exist (the version did not change): nothing to publish."
-            "skip=true" >> $env:GITHUB_OUTPUT
-            exit 0
+          # Accept 2.7.1, v2.7.1 and V.2.7.1: use the existing tag with that version number.
+          $wanted = $requested -replace '^[vV]\.?', ''
+          $allTags = @(git tag -l)
+          $tag = $allTags | Where-Object { ($_ -replace '^[vV]\.?', '') -eq $wanted } | Select-Object -First 1
+          $global:LASTEXITCODE = 0
+
+          if (-not $tag) {
+            # After an automatic merge a missing tag just means the version did not change.
+            if ($trigger -eq 'workflow_run') {
+              Write-Host "The tag for version '$wanted' does not exist (the version did not change): nothing to publish."
+              "skip=true" >> $env:GITHUB_OUTPUT
+              exit 0
+            }
+            # A manual run must never "succeed" without publishing anything.
+            throw "The tag '$requested' does not exist. Existing tags: $($allTags -join ', ')"
           }
+          Write-Host "Building tag: $tag"
 
           # After an automatic merge, do not rebuild a version that is already published.
           if ('${{ github.event_name }}' -eq 'workflow_run') {
@@ -135,6 +156,17 @@ jobs:
           "$hash  SapiExtractor.exe" | Out-File -FilePath SHA256SUMS -Encoding ascii
           Get-Content SHA256SUMS
 
+      - name: Release notes from the commit messages
+        if: steps.tag.outputs.skip != 'true'
+        run: |
+          $script = Join-Path $env:RUNNER_TEMP 'release-notes.ps1'
+          if (Test-Path $script) {
+            & $script -Tag '${{ steps.tag.outputs.tag }}' -Repo $env:REPO -Out (Join-Path $env:RUNNER_TEMP 'release-notes.md')
+          } else {
+            Write-Host 'The notes script is not available: GitHub will generate the notes.'
+          }
+          exit 0
+
       - name: Publish the release
         if: steps.tag.outputs.skip != 'true'
         working-directory: sp-extractor-wails
@@ -142,7 +174,9 @@ jobs:
           $tag = '${{ steps.tag.outputs.tag }}'
           gh release view $tag --repo $env:REPO *> $null
           if ($LASTEXITCODE -ne 0) {
-            gh release create $tag build/bin/SapiExtractor.exe build/bin/SHA256SUMS --repo $env:REPO --title $tag --generate-notes --verify-tag
+            $notes = Join-Path $env:RUNNER_TEMP 'release-notes.md'
+            $notesArgs = if (Test-Path $notes) { @('--notes-file', $notes) } else { @('--generate-notes') }
+            gh release create $tag build/bin/SapiExtractor.exe build/bin/SHA256SUMS --repo $env:REPO --title $tag @notesArgs --verify-tag
           } else {
             gh release upload $tag build/bin/SapiExtractor.exe build/bin/SHA256SUMS --clobber --repo $env:REPO
           }
