@@ -1,4 +1,4 @@
-name: Auto Merge to Main on Version Bump
+name: Auto Merge and Build on Version Bump
 
 on:
   push:
@@ -14,6 +14,10 @@ jobs:
   merge-develop-to-main:
     name: Auto Merge Develop into Main
     runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.check_version.outputs.changed }}
+      version: ${{ steps.check_version.outputs.version }}
+      title: ${{ steps.check_version.outputs.title }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -66,7 +70,7 @@ jobs:
 
           # 3. Comparar si la versión cambió
           if [ "$NEW_VERSION" = "$OLD_VERSION" ]; then
-            echo "La versión no ha cambiado. Se omite el merge a main."
+            echo "La versión no ha cambiado. Se omite el merge y build."
             echo "changed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -93,7 +97,7 @@ jobs:
           echo "Versión formateada: '$FORMATTED_VERSION'"
           echo "Título del commit:  '$COMMIT_TITLE'"
 
-          # Exportar outputs
+          # Exportar outputs para los siguientes steps y jobs
           echo "changed=true" >> "$GITHUB_OUTPUT"
           echo "version<<EOF" >> "$GITHUB_OUTPUT"
           echo "$FORMATTED_VERSION" >> "$GITHUB_OUTPUT"
@@ -138,3 +142,66 @@ jobs:
           else
             echo "El tag $VERSION ya existe. Se omite la creación del tag."
           fi
+
+  build-windows:
+    name: Build Windows App (.exe)
+    needs: merge-develop-to-main
+    if: needs.merge-develop-to-main.outputs.changed == 'true'
+    runs-on: windows-latest
+    steps:
+      - name: Checkout main branch
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          token: ${{ secrets.AUTOMERGE_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: 'sp-extractor-wails/go.mod'
+          check-latest: true
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Wails CLI
+        shell: pwsh
+        run: |
+          go install github.com/wailsapp/wails/v2/cmd/wails@latest
+
+      - name: Build Wails Executable
+        shell: pwsh
+        working-directory: sp-extractor-wails
+        run: |
+          wails build -clean
+
+      - name: Upload Artifact to GitHub Actions
+        uses: actions/upload-artifact@v4
+        with:
+          name: SapiExtractor-${{ needs.merge-develop-to-main.outputs.version }}
+          path: sp-extractor-wails/build/bin/SapiExtractor.exe
+          if-no-files-found: error
+
+      - name: Publish GitHub Release
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ secrets.AUTOMERGE_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = "${{ needs.merge-develop-to-main.outputs.version }}"
+          $title = "${{ needs.merge-develop-to-main.outputs.title }}"
+          $binary = "sp-extractor-wails/build/bin/SapiExtractor.exe"
+
+          if (-not (Test-Path $binary)) {
+            Write-Error "El ejecutable compilado no se encontró en $binary"
+            exit 1
+          }
+
+          Write-Host "Publicando release en GitHub para el tag $tag..."
+          gh release view $tag 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $tag $binary --clobber
+          } else {
+            gh release create $tag $binary --title "$tag - $title" --notes "Compilación automática generada para la versión $tag."
+          }

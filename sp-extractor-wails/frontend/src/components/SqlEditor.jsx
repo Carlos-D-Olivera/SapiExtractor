@@ -424,6 +424,8 @@ export default function SqlEditor({
       },
     }, {
       key: 'Alt-F1',
+      preventDefault: true,
+      stopPropagation: true,
       run: (view) => {
         const { from, to, head } = view.state.selection.main
         let text = from !== to ? view.state.sliceDoc(from, to).trim() : getIdentifierAtCursor(view.state, head)
@@ -438,6 +440,8 @@ export default function SqlEditor({
       },
     }, {
       key: 'Mod-Shift-t',
+      preventDefault: true,
+      stopPropagation: true,
       run: (view) => {
         const { from, to, head } = view.state.selection.main
         let text = from !== to ? view.state.sliceDoc(from, to).trim() : getIdentifierAtCursor(view.state, head)
@@ -452,6 +456,8 @@ export default function SqlEditor({
       },
     }, {
       key: 'Mod-Shift-r',
+      preventDefault: true,
+      stopPropagation: true,
       run: (view) => {
         const { from, to, head } = view.state.selection.main
         let text = from !== to ? view.state.sliceDoc(from, to).trim() : getIdentifierAtCursor(view.state, head)
@@ -466,6 +472,8 @@ export default function SqlEditor({
       },
     }, {
       key: 'Mod-Shift-c',
+      preventDefault: true,
+      stopPropagation: true,
       run: (view) => {
         const { from, to, head } = view.state.selection.main
         let text = from !== to ? view.state.sliceDoc(from, to).trim() : getIdentifierAtCursor(view.state, head)
@@ -480,6 +488,8 @@ export default function SqlEditor({
       },
     }, {
       key: 'Mod-r',
+      preventDefault: true,
+      stopPropagation: true,
       run: () => {
         onToggleResultsRef.current?.()
         return true
