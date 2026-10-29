@@ -138,6 +138,7 @@ type Tab struct {
 	ID       string `json:"id"`
 	Title    string `json:"title"`
 	SQL      string `json:"sql"`
+	SavedPath string `json:"savedPath,omitempty"`
 	ClosedAt int64  `json:"closedAt,omitempty"` // unix ms, only for closed tabs
 }
 

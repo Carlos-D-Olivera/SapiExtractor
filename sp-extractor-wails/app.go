@@ -637,6 +637,16 @@ func (a *App) GenerateInsertScript(wsID string, req InsertScriptRequest) (string
 		})
 }
 
+
+// WriteFile writes text to an already-known path (used by "Save" to overwrite
+// a previously saved query without opening a dialog again).
+func (a *App) WriteFile(path, text string) error {
+	if path == "" {
+		return fmt.Errorf("ruta vacia")
+	}
+	return os.WriteFile(path, []byte(text), 0644)
+}
+
 // SaveScript opens a native save dialog and writes text to the chosen .sql file.
 func (a *App) SaveScript(defaultName, text string) (string, error) {
 	path, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{

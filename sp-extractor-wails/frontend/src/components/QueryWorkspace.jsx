@@ -1,17 +1,18 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
-import { Play, Plus, X, Loader2, AlertCircle, Ban, Clock, Table2, Trash2, Sparkles, FileCode2, PanelBottomClose, PanelBottomOpen, Check, History, RotateCcw } from 'lucide-react'
+import { Play, Plus, X, Loader2, AlertCircle, Ban, Clock, Table2, Trash2, Sparkles, FileCode2, PanelBottomClose, PanelBottomOpen, Check, History, RotateCcw, Save } from 'lucide-react'
 import clsx from 'clsx'
 import SqlEditor, { getIdentifierAtCursor, stripQuotes } from './SqlEditor'
 import AutocompletesModal, { getStoredAutocompletes, loadStoredAutocompletes, saveStoredAutocompletes } from './AutocompletesModal'
 import InsertScriptModal from './InsertScriptModal'
 import StructuredViewerModal from './StructuredViewerModal'
 import QueryHistoryModal, { titleFromSql } from './QueryHistoryModal'
+import TabContextMenu from './TabContextMenu'
 import { detectType } from '../utils/structured'
 
 let tabSeq = 0
 function newTab() {
   tabSeq += 1
-  return { id: `q${Date.now()}_${tabSeq}`, title: `Consulta ${tabSeq}`, sql: '', lastSql: '', result: null, error: '', running: false }
+  return { id: `q${Date.now()}_${tabSeq}`, title: `Consulta ${tabSeq}`, sql: '', lastSql: '', result: null, error: '', running: false, savedPath: null, savedSql: '' }
 }
 
 const go = () => import('../../wailsjs/go/main/App')
@@ -67,6 +68,8 @@ export default function QueryWorkspace({
 }) {
   const [tabs, setTabs] = useState(() => [newTab()])
   const [activeId, setActiveId] = useState(() => tabs[0].id)
+  const tabsRef = useRef(tabs)
+  tabsRef.current = tabs
   const [insertTarget, setInsertTarget] = useState(null)
   const [viewer, setViewer] = useState(null) // JSON / XML cell open in the viewer
   const [maxRows, setMaxRows] = useState(DEFAULT_ROW_LIMIT)
@@ -87,6 +90,7 @@ export default function QueryWorkspace({
   const [closedTabs, setClosedTabs] = useState([])      // recently closed tabs of this database
   const [showClosed, setShowClosed] = useState(false)
   const [showHistory, setShowHistory] = useState(false)
+  const [tabMenu, setTabMenu] = useState(null) // { x, y, tabId }
   const [stateLoaded, setStateLoaded] = useState(false) // saved tabs have been read; autosave may start
   const lastSaved = useRef('')
 
@@ -217,7 +221,7 @@ export default function QueryWorkspace({
   useEffect(() => {
     if (!incomingSql || incomingSql.nonce === lastNonce.current) return
     lastNonce.current = incomingSql.nonce
-    const t = { ...newTab(), sql: incomingSql.text }
+    const t = { ...newTab(), sql: incomingSql.text, savedSql: '' }
     if (incomingSql.title) t.title = incomingSql.title
     setTabs(prev => [...prev, t])
     setActiveId(t.id)
@@ -231,7 +235,7 @@ export default function QueryWorkspace({
         const st = await (await go()).LoadQueryState(workspaceId)
         if (cancelled) return
         if (st?.tabs?.length) {
-          const restored = st.tabs.map(t => ({ ...newTab(), id: t.id, title: t.title || 'Consulta', sql: t.sql || '', lastSql: t.sql || '' }))
+          const restored = st.tabs.map(t => ({ ...newTab(), id: t.id, title: t.title || 'Consulta', sql: t.sql || '', lastSql: t.sql || '', savedPath: t.savedPath || null, savedSql: t.sql || '' }))
           restored.forEach(t => {
             const n = /^Consulta (\d+)$/.exec(t.title)
             if (n) tabSeq = Math.max(tabSeq, Number(n[1]))
@@ -262,7 +266,7 @@ export default function QueryWorkspace({
   useEffect(() => {
     if (!stateLoaded) return
     pendingSave.current = {
-      tabs: tabs.map(t => ({ id: t.id, title: t.title, sql: t.sql })),
+      tabs: tabs.map(t => ({ id: t.id, title: t.title, sql: t.sql, savedPath: t.savedPath || '' })),
       activeId,
       closed: closedTabs,
     }
@@ -354,7 +358,61 @@ export default function QueryWorkspace({
     patchTab(tab.id, { sql: '', lastSql: '', result: null, error: '' })
   }
 
-  const activeRef = useRef(active)
+  // "Guardar como…" — always opens the native save dialog
+  const handleSaveAs = useCallback(async (tab, customSql) => {
+    if (!tab) return
+    const currentTab = tabsRef.current?.find(t => t.id === tab.id) || tab
+    const textToSave = customSql !== undefined
+      ? customSql
+      : ((currentTab.id === activeRef.current?.id && editorRef.current)
+        ? editorRef.current.state.doc.toString()
+        : currentTab.sql)
+    if (!textToSave.trim()) return
+    try {
+      const api = await go()
+      const path = await api.SaveScript(currentTab.title + '.sql', textToSave)
+      if (path) {
+        const name = path.split(/[\\\/]/).pop().replace(/\.sql$/i, '')
+        patchTab(currentTab.id, { savedPath: path, title: name, sql: textToSave, savedSql: textToSave })
+        setCopyToast(`Guardado: ${path.split(/[\\\/]/).pop()}`)
+        setTimeout(() => setCopyToast(''), 2500)
+      }
+    } catch (e) {
+      console.error('SaveAs error:', e)
+    }
+  }, [patchTab])
+
+  // "Guardar" — overwrites existing file silently; opens dialog if new
+  const handleSave = useCallback(async (tab) => {
+    if (!tab) return
+    const currentTab = tabsRef.current?.find(t => t.id === tab.id) || tab
+    const textToSave = (currentTab.id === activeRef.current?.id && editorRef.current)
+      ? editorRef.current.state.doc.toString()
+      : currentTab.sql
+    if (!textToSave.trim()) return
+
+    if (currentTab.savedPath) {
+      try {
+        const api = await go()
+        await api.WriteFile(currentTab.savedPath, textToSave)
+        patchTab(currentTab.id, { sql: textToSave, savedSql: textToSave })
+        setCopyToast(`Guardado: ${currentTab.savedPath.split(/[\\\/]/).pop()}`)
+        setTimeout(() => setCopyToast(''), 2500)
+      } catch (e) {
+        console.error('Save error:', e)
+      }
+    } else {
+      await handleSaveAs(currentTab, textToSave)
+    }
+  }, [handleSaveAs, patchTab])
+
+  const handleSaveRef = useRef(handleSave)
+  handleSaveRef.current = handleSave
+
+  const handleSaveAsRef = useRef(handleSaveAs)
+  handleSaveAsRef.current = handleSaveAs
+
+    const activeRef = useRef(active)
   activeRef.current = active
 
   const runQueryRef = useRef(runQuery)
@@ -378,7 +436,7 @@ export default function QueryWorkspace({
   const [copyToast, setCopyToast] = useState('')
 
   const openQueryInNewTab = useCallback((sqlText, tabTitle, autoRun = false) => {
-    const t = { ...newTab(), sql: sqlText, title: tabTitle || 'Consulta' }
+    const t = { ...newTab(), sql: sqlText, title: tabTitle || 'Consulta', savedSql: '' }
     setTabs(prev => [...prev, t])
     setActiveId(t.id)
     if (autoRun) {
@@ -462,6 +520,9 @@ export default function QueryWorkspace({
       } else if ((e.ctrlKey || e.metaKey) && (e.key === 'n' || e.key === 'N')) {
         e.preventDefault()
         addTabRef.current?.()
+      } else if ((e.ctrlKey || e.metaKey) && !e.shiftKey && (e.key === 's' || e.key === 'S')) {
+        e.preventDefault()
+        handleSaveRef.current?.(activeRef.current)
       } else if ((e.ctrlKey || e.metaKey) && !e.shiftKey && (e.key === 'r' || e.key === 'R')) {
         e.preventDefault()
         if (!wasHandledByEditor) {
@@ -507,6 +568,7 @@ export default function QueryWorkspace({
           <div
             key={t.id}
             onClick={() => setActiveId(t.id)}
+            onContextMenu={(e) => { e.preventDefault(); setTabMenu({ x: e.clientX, y: e.clientY, tabId: t.id }) }}
             className={clsx(
               'group flex items-center gap-2 px-3 py-1.5 rounded-t-lg text-xs font-medium cursor-pointer select-none whitespace-nowrap transition-colors',
               t.id === activeId
@@ -516,6 +578,9 @@ export default function QueryWorkspace({
           >
             <Table2 className="w-3.5 h-3.5" />
             {t.title}
+            {((t.sql ?? '') !== (t.savedSql ?? '')) && (
+              <span className="w-1.5 h-1.5 rounded-full bg-white flex-shrink-0 opacity-80" title="Cambios sin guardar" />
+            )}
             {tabs.length > 1 && (
               <button
                 onClick={e => { e.stopPropagation(); closeTab(t.id) }}
@@ -691,6 +756,7 @@ export default function QueryWorkspace({
                 autocompletes={autocompletes}
                 fontSize={fontSize}
                 viewRef={editorRef}
+                onSave={() => handleSaveRef.current?.(active)}
                 onRun={selection => runQuery(active, selection)}
                 onAltF1={table => onOpenTableDefinition?.(table)}
                 onSelectTop100={handleSelectTop100}
@@ -756,6 +822,19 @@ export default function QueryWorkspace({
           hint={viewer.hint}
           subtitle={viewer.subtitle}
           onClose={() => setViewer(null)}
+        />
+      )}
+
+      {/* Tab context menu (right-click on tab) */}
+      {tabMenu && (
+        <TabContextMenu
+          x={tabMenu.x}
+          y={tabMenu.y}
+          tab={tabs.find(t => t.id === tabMenu.tabId)}
+          onClose={() => setTabMenu(null)}
+          onSave={(tab) => { setTabMenu(null); handleSaveRef.current?.(tab) }}
+          onSaveAs={(tab) => { setTabMenu(null); handleSaveAsRef.current?.(tab) }}
+          onCloseTab={(tab) => { setTabMenu(null); closeTab(tab.id) }}
         />
       )}
 

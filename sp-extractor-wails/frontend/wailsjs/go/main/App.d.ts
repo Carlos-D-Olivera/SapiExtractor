@@ -95,3 +95,5 @@ export function StartTrace(arg1:string,arg2:trace.Options):Promise<void>;
 export function StopTrace(arg1:string):Promise<void>;
 
 export function TraceStatus(arg1:string):Promise<boolean>;
+
+export function WriteFile(arg1:string,arg2:string):Promise<void>;
