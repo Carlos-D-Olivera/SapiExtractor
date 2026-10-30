@@ -544,6 +544,7 @@ export default function App() {
           info={updateInfo}
           onClose={() => setShowUpdate(false)}
           onSkipped={() => setUpdateInfo(null)}
+          onUpdateInfoChange={setUpdateInfo}
         />
       )}
 

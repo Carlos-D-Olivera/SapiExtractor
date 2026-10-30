@@ -13,7 +13,7 @@ function fmtMB(bytes) {
  * Checks for, shows and installs a new version.
  * `info` is a release already found at start-up (skips the first check).
  */
-export default function UpdateModal({ version, info: initialInfo, onClose, onSkipped }) {
+export default function UpdateModal({ version, info: initialInfo, onClose, onSkipped, onUpdateInfoChange }) {
   const [phase, setPhase] = useState(initialInfo ? 'available' : 'checking') // checking | uptodate | available | installing | restarting | error
   const [info, setInfo] = useState(initialInfo || null)
   const [error, setError] = useState('')
@@ -28,6 +28,7 @@ export default function UpdateModal({ version, info: initialInfo, onClose, onSki
       const res = await (await go()).CheckForUpdate()
       setInfo(res)
       setPhase(res.available ? 'available' : 'uptodate')
+      onUpdateInfoChange?.(res.available ? res : null)
     } catch (e) {
       setError(e.toString())
       setPhase('error')
@@ -141,9 +142,18 @@ export default function UpdateModal({ version, info: initialInfo, onClose, onSki
                 </div>
               )}
               {!info.canAutoInstall && (
-                <div className="flex items-start gap-2 rounded-lg px-3 py-2 bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs">
-                  <AlertCircle className="w-4 h-4 flex-shrink-0 mt-px" />
-                  <span>Esta versión no se puede instalar automáticamente: {info.reason}. Puedes descargarla desde la página de la versión.</span>
+                <div className="flex items-start justify-between gap-3 rounded-lg px-3 py-2 bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs">
+                  <div className="flex items-start gap-2">
+                    <AlertCircle className="w-4 h-4 flex-shrink-0 mt-px" />
+                    <span>Esta versión no se puede instalar automáticamente: {info.reason}. Puedes descargarla desde la página de la versión.</span>
+                  </div>
+                  <button
+                    onClick={check}
+                    className="btn-secondary text-xs py-1 px-2.5 whitespace-nowrap flex-shrink-0 text-amber-200 border-amber-500/40 hover:bg-amber-500/20"
+                    title="Volver a buscar la actualización"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" /> Reintentar
+                  </button>
                 </div>
               )}
               <p className="text-[11px] text-slate-500">
@@ -186,8 +196,8 @@ export default function UpdateModal({ version, info: initialInfo, onClose, onSki
             </label>
           )}
           <div className="flex-1" />
-          {(phase === 'uptodate' || phase === 'error') && (
-            <button onClick={check} className="btn-secondary text-xs py-1.5 px-3"><RefreshCw className="w-3.5 h-3.5" /> Buscar de nuevo</button>
+          {(phase === 'uptodate' || phase === 'error' || phase === 'available') && (
+            <button onClick={check} className="btn-secondary text-xs py-1.5 px-3" title="Buscar actualizaciones"><RefreshCw className="w-3.5 h-3.5" /> Buscar de nuevo</button>
           )}
           {(phase === 'available' || phase === 'error') && info?.latest && (
             <button onClick={openPage} className="btn-secondary text-xs py-1.5 px-3"><ExternalLink className="w-3.5 h-3.5" /> Ver en GitHub</button>
