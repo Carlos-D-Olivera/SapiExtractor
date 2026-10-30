@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import {
   Play, Square, Pause, Eraser, Search, Loader2, AlertCircle, ShieldAlert, Copy, Check,
-  Terminal, ArrowDownToLine, Trash2, Bug,
+  Terminal, ArrowDownToLine, Trash2, Bug, Filter, RotateCw, ChevronDown, ChevronUp,
+  Database, User, Monitor, Hash, AppWindow, X, Lock, Info,
 } from 'lucide-react'
 import clsx from 'clsx'
 
@@ -42,6 +43,71 @@ function fmtTime(iso) {
 
 const oneLine = (s) => (s || '').replace(/\s+/g, ' ').trim()
 
+// Server-side filters (like the filters of SSMS's Profiler). They are remembered per database.
+const DEFAULT_FILTERS = { loginMode: 'me', loginOther: '', host: '', pid: '', app: '' }
+
+function loadFilters(key) {
+  try {
+    const saved = JSON.parse(localStorage.getItem(key) || 'null')
+    if (saved && typeof saved === 'object') return { ...DEFAULT_FILTERS, ...saved }
+  } catch { /* storage unavailable or corrupt: use the defaults */ }
+  return { ...DEFAULT_FILTERS }
+}
+
+// Human-readable list of the filters a set of start options applies.
+function describeOptions(o, dbName) {
+  const parts = [`base: ${dbName}`]
+  if (o.login) parts.push(`usuario: ${o.login}`)
+  if (o.host) parts.push(`host: ${o.host}`)
+  if (o.hostPid) parts.push(`PID: ${o.hostPid}`)
+  if (o.app) parts.push(`aplicación: ${o.app}`)
+  if (o.minDurationMs) parts.push(`≥ ${o.minDurationMs} ms`)
+  if (o.includeOwn) parts.push('incluye esta app')
+  return parts
+}
+
+// One filter of the panel: a titled card that lights up while it has a value.
+function FilterCard({ icon: Icon, label, hint, active, wide, children }) {
+  return (
+    <div
+      title={hint}
+      className={clsx(
+        'rounded-xl border px-3 py-2.5 flex flex-col gap-1.5 transition-colors',
+        wide ? 'md:col-span-2' : '',
+        active ? 'border-sky-500/50 bg-sky-500/[0.06] shadow-[0_0_0_1px_rgba(14,165,233,0.12)]' : 'border-surface-600 bg-surface-800/40',
+      )}
+    >
+      <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-widest font-semibold">
+        <Icon className={clsx('w-3.5 h-3.5', active ? 'text-sky-300' : 'text-slate-500')} />
+        <span className={active ? 'text-sky-200' : 'text-slate-500'}>{label}</span>
+        {active && <span className="ml-auto w-1.5 h-1.5 rounded-full bg-sky-400" />}
+      </div>
+      {children}
+    </div>
+  )
+}
+
+// Text input with a clear button.
+function FilterInput({ value, onChange, placeholder, numeric }) {
+  return (
+    <div className="relative">
+      <input
+        className="input-field py-1.5 pr-7 text-xs w-full font-mono"
+        inputMode={numeric ? 'numeric' : undefined}
+        placeholder={placeholder}
+        value={value}
+        onChange={e => onChange(e.target.value)}
+      />
+      {value && (
+        <button onClick={() => onChange('')} title="Borrar"
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 p-0.5 rounded text-slate-500 hover:text-white hover:bg-surface-600">
+          <X className="w-3 h-3" />
+        </button>
+      )}
+    </div>
+  )
+}
+
 // RPC calls made by drivers to run prepared statements or cursors are not user procedures.
 const DRIVER_PROCS = new Set([
   'sp_executesql', 'sp_prepare', 'sp_execute', 'sp_prepexec', 'sp_prepexecrpc', 'sp_unprepare', 'sp_reset_connection',
@@ -70,6 +136,10 @@ export default function TracePanel({ workspaceId, connInfo, active, onOpenInQuer
   // Options applied when the trace starts (they become server-side filters).
   const [minDuration, setMinDuration] = useState(0)
   const [includeOwn, setIncludeOwn] = useState(false)
+  const filtersKey = `spx_trace_filters:${connInfo.dbType}|${connInfo.host}|${connInfo.dbName}`
+  const [filters, setFilters] = useState(() => loadFilters(filtersKey))
+  const [showFilters, setShowFilters] = useState(true)
+  const [applied, setApplied] = useState(null) // options the running trace was started with
   // Display filters (instant).
   const [text, setText] = useState('')
   const [onlyErrors, setOnlyErrors] = useState(false)
@@ -113,6 +183,28 @@ export default function TracePanel({ workspaceId, connInfo, active, onOpenInQuer
     return () => { cancelled = true; offs.forEach(off => off?.()) }
   }, [workspaceId, append])
 
+  useEffect(() => {
+    try { localStorage.setItem(filtersKey, JSON.stringify(filters)) } catch { /* not critical */ }
+  }, [filtersKey, filters])
+
+  const setFilter = (patch) => setFilters(f => ({ ...f, ...patch }))
+
+  // What the server should filter on, from the form.
+  const buildOptions = () => {
+    const pid = Number.parseInt(filters.pid, 10)
+    return {
+      minDurationMs: minDuration,
+      includeOwn,
+      login: filters.loginMode === 'me' ? (connInfo.user || '') : filters.loginMode === 'other' ? filters.loginOther.trim() : '',
+      host: filters.host.trim(),
+      hostPid: pid > 0 ? pid : 0,
+      app: filters.app.trim(),
+    }
+  }
+  const currentOptions = buildOptions()
+  const dirty = running && applied !== null && JSON.stringify(applied) !== JSON.stringify(currentOptions)
+  const activeFilters = [currentOptions.login, currentOptions.host, currentOptions.hostPid, currentOptions.app].filter(Boolean).length
+
   // A trace may already be running (e.g. component remounted).
   useEffect(() => {
     ;(async () => {
@@ -130,7 +222,9 @@ export default function TracePanel({ workspaceId, connInfo, active, onOpenInQuer
     setNotice('')
     setStarting(true)
     try {
-      await (await go()).StartTrace(workspaceId, { minDurationMs: minDuration, includeOwn })
+      const opts = buildOptions()
+      await (await go()).StartTrace(workspaceId, opts)
+      setApplied(opts)
       setRunning(true)
       setPaused(false)
     } catch (e) {
@@ -140,8 +234,38 @@ export default function TracePanel({ workspaceId, connInfo, active, onOpenInQuer
     }
   }
 
+  // The filters live in the server-side session, so changing them means a new
+  // session; what was already captured stays on screen.
+  const restart = async () => {
+    setError('')
+    setStarting(true)
+    try {
+      const api = await go()
+      await api.StopTrace(workspaceId)
+      const opts = buildOptions()
+      await api.StartTrace(workspaceId, opts)
+      setApplied(opts)
+      setRunning(true)
+    } catch (e) {
+      setRunning(false)
+      setApplied(null)
+      setError(e.toString())
+    } finally {
+      setStarting(false)
+    }
+  }
+
+  // "Only this user / host / PID" from a captured event.
+  const filterBy = (kind, ev) => {
+    if (kind === 'login') setFilter({ loginMode: 'other', loginOther: ev.login || '' })
+    if (kind === 'host') setFilter({ host: ev.host || '' })
+    if (kind === 'pid') setFilter({ pid: ev.hostPid ? String(ev.hostPid) : '' })
+    setShowFilters(true)
+  }
+
   const stop = async () => {
     try { await (await go()).StopTrace(workspaceId) } catch (e) { setError(e.toString()) }
+    setApplied(null)
     setRunning(false)
     setPaused(false)
     if (pendingRef.current.length) { append(pendingRef.current); pendingRef.current = [] }
@@ -243,18 +367,33 @@ export default function TracePanel({ workspaceId, connInfo, active, onOpenInQuer
         <div className="w-px h-5 bg-surface-600 mx-1" />
 
         <label className="flex items-center gap-1.5 text-[11px] text-slate-500"
-               title="Se aplica en el servidor al iniciar la traza">
+               title="Se aplica en el servidor; si la traza está en marcha, pulsa Aplicar para reiniciarla con el cambio">
           Duración
-          <select value={minDuration} onChange={e => setMinDuration(Number(e.target.value))} disabled={running}
-                  className="rounded-md px-1.5 py-1 text-xs bg-surface-800 border border-surface-600 text-slate-300 outline-none disabled:opacity-50">
+          <select value={minDuration} onChange={e => setMinDuration(Number(e.target.value))}
+                  className="rounded-md px-1.5 py-1 text-xs bg-surface-800 border border-surface-600 text-slate-300 outline-none">
             {MIN_DURATIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
         </label>
         <label className="flex items-center gap-1.5 text-[11px] text-slate-500 cursor-pointer select-none"
                title="Incluye las consultas ejecutadas desde la pestaña Consultas de esta app">
-          <input type="checkbox" checked={includeOwn} disabled={running} onChange={e => setIncludeOwn(e.target.checked)} />
+          <input type="checkbox" checked={includeOwn} onChange={e => setIncludeOwn(e.target.checked)} />
           Incluir esta app
         </label>
+
+        <button onClick={() => setShowFilters(v => !v)} className="btn-secondary text-xs py-1.5 px-3"
+                title="Filtros de la traza: usuario, host, PID del cliente y aplicación">
+          <Filter className="w-3.5 h-3.5" />
+          Filtros
+          {activeFilters > 0 && <span className="px-1.5 rounded-full text-[10px] bg-sky-400/20 text-sky-300 font-mono font-bold">{activeFilters}</span>}
+          {showFilters ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+        </button>
+        {dirty && (
+          <button onClick={restart} disabled={starting} className="btn-primary text-xs py-1.5 px-3"
+                  title="Los filtros se aplican en el servidor: reinicia la traza (lo ya capturado se conserva)">
+            {starting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RotateCw className="w-3.5 h-3.5" />}
+            Aplicar filtros
+          </button>
+        )}
 
         <div className="flex-1" />
 
@@ -278,6 +417,89 @@ export default function TracePanel({ workspaceId, connInfo, active, onOpenInQuer
         <span className="text-[11px] text-slate-500 whitespace-nowrap">{filtered.length} / {events.length}</span>
       </div>
 
+      {showFilters && (
+        <div className="flex-shrink-0 rounded-2xl border border-surface-600 p-3 flex flex-col gap-3"
+             style={{ background: 'linear-gradient(180deg, rgba(17,27,44,0.65), rgba(24,25,26,0.9))' }}>
+          <div className="flex items-center gap-2">
+            <div className="p-1.5 rounded-lg bg-brand-dark/40 border border-brand-dark/50"><Filter className="w-3.5 h-3.5 text-brand-light" /></div>
+            <h3 className="text-xs font-semibold text-white">Filtros de la traza</h3>
+            <span className={clsx('px-2 py-0.5 rounded-full text-[10px] font-medium border',
+              activeFilters > 0 ? 'bg-sky-500/15 border-sky-500/40 text-sky-300' : 'bg-surface-800 border-surface-600 text-slate-500')}>
+              {activeFilters > 0 ? `${activeFilters} activo${activeFilters > 1 ? 's' : ''}` : 'sin filtros'}
+            </span>
+            <div className="flex-1" />
+            {activeFilters > 0 && (
+              <button onClick={() => setFilters({ ...DEFAULT_FILTERS, loginMode: 'all' })}
+                      className="btn-secondary text-[11px] py-1 px-2" title="Quita todos los filtros, incluido el de usuario">
+                <X className="w-3 h-3" /> Quitar filtros
+              </button>
+            )}
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-2.5">
+            <FilterCard icon={Database} label="Base de datos" hint="La traza siempre se limita a la base conectada" active={false}>
+              <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-surface-900/70 border border-surface-600 text-xs font-mono text-slate-200">
+                <span className="truncate">{connInfo.dbName}</span>
+                <Lock className="w-3 h-3 ml-auto flex-shrink-0 text-slate-600" />
+              </div>
+            </FilterCard>
+
+            <FilterCard icon={User} label="Usuario (login)" active={currentOptions.login !== ''}
+                        hint="Inicio de sesión que ejecuta las consultas. Por defecto, el usuario con el que te conectaste.">
+              <div className="grid grid-cols-3 gap-0.5 p-0.5 rounded-lg bg-surface-900/70 border border-surface-600">
+                {[['me', 'Mi usuario'], ['all', 'Todos'], ['other', 'Otro']].map(([mode, label]) => (
+                  <button key={mode} onClick={() => setFilter({ loginMode: mode })}
+                          className={clsx('py-1 rounded-md text-[11px] font-medium transition-all',
+                            filters.loginMode === mode ? 'bg-brand-dark/70 text-white shadow' : 'text-slate-400 hover:text-slate-200')}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+              {filters.loginMode === 'other' ? (
+                <FilterInput value={filters.loginOther} onChange={v => setFilter({ loginOther: v })} placeholder="DOMINIO\usuario" />
+              ) : (
+                <p className="text-[11px] text-slate-500 truncate">
+                  {filters.loginMode === 'me' ? <>Solo <span className="font-mono text-slate-300">{connInfo.user || '—'}</span></> : 'Cualquier usuario'}
+                </p>
+              )}
+            </FilterCard>
+
+            <FilterCard icon={Monitor} label="Host (equipo)" active={filters.host.trim() !== ''}
+                        hint="Nombre del equipo desde el que se conecta la aplicación. Coincide si lo contiene.">
+              <FilterInput value={filters.host} onChange={v => setFilter({ host: v })} placeholder="cualquier equipo" />
+            </FilterCard>
+
+            <FilterCard icon={Hash} label="PID del cliente" active={currentOptions.hostPid > 0}
+                        hint="Identificador (PID) del proceso del programa cliente en su equipo; se ve en el Administrador de tareas. Sirve para aislar una instancia concreta.">
+              <FilterInput numeric value={filters.pid} onChange={v => setFilter({ pid: v.replace(/\D/g, '').slice(0, 10) })} placeholder="cualquier proceso" />
+            </FilterCard>
+
+            <FilterCard icon={AppWindow} label="Aplicación" active={filters.app.trim() !== ''} wide
+                        hint="Nombre de la aplicación cliente (por ejemplo, el que define la cadena de conexión). Coincide si lo contiene.">
+              <FilterInput value={filters.app} onChange={v => setFilter({ app: v })} placeholder="cualquier aplicación" />
+            </FilterCard>
+
+            <div className="md:col-span-2 flex items-start gap-2 rounded-xl border border-dashed border-surface-600 px-3 py-2.5 text-[11px] text-slate-500 leading-relaxed">
+              <Info className="w-3.5 h-3.5 flex-shrink-0 mt-0.5 text-slate-500" />
+              <span>
+                Los filtros se aplican en el servidor: solo se captura lo que coincide.
+                {running ? ' Si cambias alguno con la traza en marcha, pulsa «Aplicar filtros» para reiniciarla (lo ya capturado se conserva).' : ' Se recuerdan para esta base de datos.'}
+                {filters.loginMode === 'me' && ' Para ver también la actividad de otros usuarios elige «Todos».'}
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {running && applied && (
+        <div className="flex items-center gap-1.5 flex-wrap flex-shrink-0 text-[11px]">
+          <span className="text-slate-500">Filtros en el servidor:</span>
+          {describeOptions(applied, connInfo.dbName).map(part => (
+            <span key={part} className="px-1.5 py-0.5 rounded border border-surface-600 bg-surface-800/60 text-slate-300 font-mono">{part}</span>
+          ))}
+        </div>
+      )}
+
       {error && (
         <div className="flex items-start gap-2 rounded-lg px-3 py-2 bg-red-500/10 border border-red-500/30 text-red-400 text-xs flex-shrink-0">
           <AlertCircle className="w-4 h-4 flex-shrink-0 mt-px" />
@@ -293,7 +515,7 @@ export default function TracePanel({ workspaceId, connInfo, active, onOpenInQuer
         <table className="w-full text-xs border-collapse">
           <thead className="sticky top-0 z-10">
             <tr style={{ background: '#111B2C' }} className="text-slate-400 text-left">
-              {['Hora', 'Tipo', 'Duración', 'CPU', 'Lecturas', 'Escrit.', 'Filas', 'SPID', 'Login', 'Aplicación', 'Consulta'].map(h => (
+              {['Hora', 'Tipo', 'Duración', 'CPU', 'Lecturas', 'Escrit.', 'Filas', 'SPID', 'Login', 'Host', 'PID', 'Aplicación', 'Consulta'].map(h => (
                 <th key={h} className="px-2.5 py-1.5 font-medium whitespace-nowrap">{h}</th>
               ))}
             </tr>
@@ -301,7 +523,7 @@ export default function TracePanel({ workspaceId, connInfo, active, onOpenInQuer
           <tbody>
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={11} className="text-center py-12 text-slate-500">
+                <td colSpan={13} className="text-center py-12 text-slate-500">
                   {running
                     ? 'Esperando actividad en la base de datos…'
                     : 'Pulsa "Iniciar traza" para capturar las consultas que se ejecutan en esta base de datos.'}
@@ -324,6 +546,8 @@ export default function TracePanel({ workspaceId, connInfo, active, onOpenInQuer
                   <td className="px-2.5 py-1 font-mono text-right">{e.kind === 'error' ? '—' : e.rows.toLocaleString()}</td>
                   <td className="px-2.5 py-1 font-mono text-right text-slate-500">{e.sessionId || ''}</td>
                   <td className="px-2.5 py-1 whitespace-nowrap max-w-[140px] truncate" title={e.login}>{e.login}</td>
+                  <td className="px-2.5 py-1 whitespace-nowrap max-w-[120px] truncate text-slate-400" title={e.host}>{e.host}</td>
+                  <td className="px-2.5 py-1 font-mono text-right text-slate-500">{e.hostPid || ''}</td>
                   <td className="px-2.5 py-1 whitespace-nowrap max-w-[140px] truncate text-slate-400" title={e.app}>{e.app}</td>
                   <td className="px-2.5 py-1 font-mono max-w-[480px] truncate" title={oneLine(e.text)}>
                     {e.kind === 'error' ? `#${e.errorNumber} ${e.object} — ` : e.object ? `${e.object} · ` : ''}{oneLine(e.text)}
@@ -343,7 +567,16 @@ export default function TracePanel({ workspaceId, connInfo, active, onOpenInQuer
             <span>{fmtTime(selected.time)}</span>
             {selected.kind !== 'error' && <span>· {fmtDuration(selected.durationUs)} · CPU {fmtDuration(selected.cpuUs)} · {selected.reads.toLocaleString()} lecturas</span>}
             {selected.kind === 'error' && <span className="text-red-300">· Error {selected.errorNumber} (sev. {selected.severity}): {selected.object}</span>}
-            <span>· {selected.login || '—'}@{selected.host || '—'} · SPID {selected.sessionId}</span>
+            <span>· {selected.login || '—'}@{selected.host || '—'}{selected.hostPid ? ` (PID ${selected.hostPid})` : ''} · SPID {selected.sessionId}</span>
+            {selected.login && (
+              <button onClick={() => filterBy('login', selected)} className="text-sky-300 hover:underline" title="Capturar solo este usuario">solo este usuario</button>
+            )}
+            {selected.host && (
+              <button onClick={() => filterBy('host', selected)} className="text-sky-300 hover:underline" title="Capturar solo este equipo">solo este host</button>
+            )}
+            {selected.hostPid > 0 && (
+              <button onClick={() => filterBy('pid', selected)} className="text-sky-300 hover:underline" title="Capturar solo este proceso cliente">solo este PID</button>
+            )}
             <div className="flex-1" />
             {onDebugProc && isProcCall(selected) && (
               <button onClick={debugSelected} className="btn-secondary text-[11px] py-1 px-2"

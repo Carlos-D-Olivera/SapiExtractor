@@ -17,7 +17,9 @@ const sampleBuffer = `<RingBufferTarget truncated="0" eventCount="3" droppedCoun
   <action name="client_app_name" package="sqlserver"><type name="unicode_string" package="package0" /><value>MiApp</value></action>
   <action name="client_hostname" package="sqlserver"><type name="unicode_string" package="package0" /><value>PC-01</value></action>
   <action name="database_name" package="sqlserver"><type name="unicode_string" package="package0" /><value>Ventas</value></action>
-  <action name="username" package="sqlserver"><type name="unicode_string" package="package0" /><value>DOM\ana</value></action>
+  <action name="username" package="sqlserver"><type name="unicode_string" package="package0" /><value>dbo</value></action>
+  <action name="server_principal_name" package="sqlserver"><type name="unicode_string" package="package0" /><value>DOM\ana</value></action>
+  <action name="client_pid" package="sqlserver"><type name="uint32" package="package0" /><value>4321</value></action>
   <action name="session_id" package="sqlserver"><type name="uint16" package="package0" /><value>57</value></action>
 </event>
 <event name="rpc_completed" package="sqlserver" timestamp="2026-10-22T15:04:06.0000000Z">
@@ -51,7 +53,7 @@ func TestParseRingBuffer(t *testing.T) {
 	if b.Text != "SELECT * FROM dbo.Pedidos WHERE Id < 10" || b.Result != "OK" {
 		t.Errorf("bad batch text/result: %+v", b)
 	}
-	if b.Database != "Ventas" || b.Login != `DOM\ana` || b.Host != "PC-01" || b.App != "MiApp" || b.SessionID != 57 {
+	if b.Database != "Ventas" || b.Login != `DOM\ana` || b.Host != "PC-01" || b.HostPID != 4321 || b.App != "MiApp" || b.SessionID != 57 {
 		t.Errorf("bad batch actions: %+v", b)
 	}
 	if b.Time != "2026-10-22T15:04:05.123Z" {
@@ -86,7 +88,7 @@ func TestFreshReturnsOnlyNewEvents(t *testing.T) {
 }
 
 func TestBuildCreateSQL(t *testing.T) {
-	got := buildCreateSQL("spx_trace_ab12cd34", "Ven'tas", "SapiExtractor", Options{MinDurationMs: 50})
+	got := buildCreateSQL("spx_trace_ab12cd34", "Ven'tas", "SapiExtractor", Options{MinDurationMs: 50}, testCatalog())
 	for _, want := range []string{
 		"CREATE EVENT SESSION [spx_trace_ab12cd34] ON SERVER",
 		"sqlserver.database_name = N'Ven''tas'",
@@ -100,7 +102,7 @@ func TestBuildCreateSQL(t *testing.T) {
 			t.Errorf("missing %q in:\n%s", want, got)
 		}
 	}
-	if own := buildCreateSQL("spx_trace_ab12cd34", "V", "SapiExtractor", Options{IncludeOwn: true}); strings.Contains(own, "client_app_name <>") || strings.Contains(own, "duration >=") {
+	if own := buildCreateSQL("spx_trace_ab12cd34", "V", "SapiExtractor", Options{IncludeOwn: true}, testCatalog()); strings.Contains(own, "client_app_name <>") || strings.Contains(own, "duration >=") {
 		t.Errorf("IncludeOwn / zero duration should drop those predicates:\n%s", own)
 	}
 }
@@ -116,5 +118,121 @@ func TestValidName(t *testing.T) {
 		if got := validName(name); got != want {
 			t.Errorf("validName(%q) = %v, want %v", name, got, want)
 		}
+	}
+}
+
+func TestFiltersBecomeServerPredicates(t *testing.T) {
+	got := buildCreateSQL("spx_trace_ab12cd34", "Ventas", "SapiExtractor", Options{
+		Login: `DOM\ana`, Host: "PC-01", HostPID: 4321, App: "Mi App", MinDurationMs: 20,
+	}, testCatalog())
+	for _, want := range []string{
+		"sqlserver.client_pid, ",
+		"sqlserver.server_principal_name, ",
+		`sqlserver.like_i_sql_unicode_string(sqlserver.server_principal_name, N'DOM\ana')`, // exact: no % around it
+		"sqlserver.like_i_sql_unicode_string(sqlserver.client_hostname, N'%PC-01%')",       // contains
+		"sqlserver.like_i_sql_unicode_string(sqlserver.client_app_name, N'%Mi App%')",
+		"sqlserver.client_pid = 4321",
+		"duration >= 20000",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, got)
+		}
+	}
+	// The filters apply to the statements and to the errors alike.
+	if strings.Count(got, "sqlserver.client_pid = 4321") != 3 {
+		t.Errorf("each of the three events must carry the PID filter:\n%s", got)
+	}
+
+	none := buildCreateSQL("spx_trace_ab12cd34", "Ventas", "SapiExtractor", Options{}, testCatalog())
+	for _, bad := range []string{"like_i_sql_unicode_string", "client_pid ="} {
+		if strings.Contains(none, bad) {
+			t.Errorf("without filters %q must not appear:\n%s", bad, none)
+		}
+	}
+}
+
+func TestFilterValuesAreEscaped(t *testing.T) {
+	got := buildCreateSQL("spx_trace_ab12cd34", "Ventas", "x", Options{Host: "o'brien_%[1]"}, testCatalog())
+	if !strings.Contains(got, "N'%o''brien[_][%][[]1]%'") {
+		t.Errorf("quote and LIKE wildcards must be neutralised:\n%s", got)
+	}
+}
+
+func TestNormalize(t *testing.T) {
+	o, err := Options{Login: "  sa ", Host: " pc ", App: "  ", HostPID: 12, MinDurationMs: -5}.Normalize()
+	if err != nil || o.Login != "sa" || o.Host != "pc" || o.App != "" || o.MinDurationMs != 0 {
+		t.Errorf("normalised = %+v, %v", o, err)
+	}
+	if _, err := (Options{HostPID: -1}).Normalize(); err == nil {
+		t.Error("a negative PID must be rejected")
+	}
+	if _, err := (Options{Host: strings.Repeat("x", maxFilterLen+1)}).Normalize(); err == nil {
+		t.Error("an over-long filter must be rejected")
+	}
+}
+
+func TestLoginFallsBackToDatabaseUser(t *testing.T) {
+	doc := `<RingBufferTarget><event name="sql_batch_completed" timestamp="2026-10-30T10:00:00.000Z">
+  <data name="batch_text"><value>SELECT 1</value></data>
+  <action name="username" package="sqlserver"><value>dbo</value></action>
+</event></RingBufferTarget>`
+	ev, err := ParseRingBuffer(doc)
+	if err != nil || len(ev) != 1 || ev[0].Login != "dbo" || ev[0].HostPID != 0 {
+		t.Errorf("fallback: %+v %v", ev, err)
+	}
+}
+
+func testCatalog() catalog {
+	return catalog{
+		like:    "sqlserver.like_i_sql_unicode_string",
+		sources: map[string]bool{"client_pid": true, "client_hostname": true, "server_principal_name": true},
+		known:   true,
+	}
+}
+
+// The package that owns the LIKE comparator differs between servers: whatever the
+// server reports is what must appear in the session definition.
+func TestLikeComparatorComesFromTheServerCatalog(t *testing.T) {
+	cat := testCatalog()
+	cat.like = "package0.like_i_sql_unicode_string"
+	got := buildCreateSQL("spx_trace_ab12cd34", "Ventas", "x", Options{Host: "PC"}, cat)
+	if !strings.Contains(got, "package0.like_i_sql_unicode_string(sqlserver.client_hostname, N'%PC%')") {
+		t.Errorf("comparator not taken from the catalog:\n%s", got)
+	}
+	if strings.Contains(got, "sqlserver.like_i_sql_unicode_string") {
+		t.Errorf("a hard-coded comparator leaked into the definition:\n%s", got)
+	}
+}
+
+func TestWithoutLikeComparatorFiltersUseEquality(t *testing.T) {
+	cat := testCatalog()
+	cat.like = ""
+	got := buildCreateSQL("spx_trace_ab12cd34", "Ventas", "x", Options{Login: "sa", Host: "PC", App: "App"}, cat)
+	for _, want := range []string{
+		"sqlserver.server_principal_name = N'sa'",
+		"sqlserver.client_hostname = N'PC'",
+		"sqlserver.client_app_name = N'App'",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "like_i_sql_unicode_string") {
+		t.Errorf("no LIKE comparator may be referenced when the server has none:\n%s", got)
+	}
+}
+
+func TestLoginSourceFallsBackToUsername(t *testing.T) {
+	cat := testCatalog()
+	delete(cat.sources, "server_principal_name")
+	if got := cat.loginSource(); got != "sqlserver.username" {
+		t.Errorf("loginSource = %q", got)
+	}
+	if got := testCatalog().loginSource(); got != "sqlserver.server_principal_name" {
+		t.Errorf("loginSource = %q", got)
+	}
+	// An unreadable catalog assumes the usual objects exist.
+	if c := defaultCatalog(); !c.hasSource("client_pid") || c.like == "" {
+		t.Errorf("default catalog = %+v", c)
 	}
 }

@@ -32,6 +32,113 @@ type Options struct {
 	MinDurationMs int `json:"minDurationMs"`
 	// IncludeOwn also captures statements issued by this app (e.g. the Consultas tab).
 	IncludeOwn bool `json:"includeOwn"`
+
+	// The filters below are applied by the server (like the filters of SSMS's
+	// Profiler / Extended Events wizard), so non-matching activity is never
+	// captured. Empty / zero means "no filter".
+
+	// Login is the login name (server principal) to capture, compared case-insensitively.
+	Login string `json:"login"`
+	// Host is the client machine name; any host whose name contains it matches.
+	Host string `json:"host"`
+	// HostPID is the process ID of the client program on its machine (SSMS: HostProcessID).
+	HostPID int `json:"hostPid"`
+	// App is the client application name; any application whose name contains it matches.
+	App string `json:"app"`
+}
+
+const maxFilterLen = 128
+
+// Normalize trims the text filters and rejects values that cannot be valid.
+func (o Options) Normalize() (Options, error) {
+	o.Login, o.Host, o.App = strings.TrimSpace(o.Login), strings.TrimSpace(o.Host), strings.TrimSpace(o.App)
+	for name, v := range map[string]string{"usuario": o.Login, "host": o.Host, "aplicación": o.App} {
+		if len([]rune(v)) > maxFilterLen {
+			return o, fmt.Errorf("el filtro de %s es demasiado largo (máximo %d caracteres)", name, maxFilterLen)
+		}
+	}
+	if o.HostPID < 0 || o.HostPID > 4294967295 {
+		return o, errors.New("el PID del cliente debe ser un número positivo")
+	}
+	if o.MinDurationMs < 0 {
+		o.MinDurationMs = 0
+	}
+	return o, nil
+}
+
+// likeEscape neutralises the wildcard characters of T-SQL LIKE in a literal term.
+func likeEscape(s string) string {
+	return strings.NewReplacer("[", "[[]", "%", "[%]", "_", "[_]").Replace(s)
+}
+
+// textPredicate matches a text field against term, case-insensitively. With
+// contains the term may appear anywhere in the value; otherwise the whole value
+// must equal it. like is this server's LIKE comparator (see catalog); when the
+// server has none, plain equality is used (also case-insensitive in Extended Events).
+func textPredicate(field, term string, contains bool, like string) string {
+	if like == "" {
+		return fmt.Sprintf("%s = %s", field, sqlString(term))
+	}
+	pattern := likeEscape(term)
+	if contains {
+		pattern = "%" + pattern + "%"
+	}
+	return fmt.Sprintf("%s(%s, %s)", like, field, sqlString(pattern))
+}
+
+// catalog is what the server's Extended Events offers for predicates. The
+// package that holds a comparator differs between builds, so it is looked up
+// instead of assumed.
+type catalog struct {
+	like    string          // qualified case-insensitive LIKE comparator; "" = the server has none
+	sources map[string]bool // predicate sources of the sqlserver package, by bare name
+	known   bool            // false when the catalog could not be read: assume the usual objects exist
+}
+
+// defaultCatalog is used when the server's catalog cannot be read.
+func defaultCatalog() catalog {
+	return catalog{like: "sqlserver.like_i_sql_unicode_string", sources: map[string]bool{}}
+}
+
+func (c catalog) hasSource(name string) bool { return !c.known || c.sources[name] }
+
+// loginSource is the predicate source that holds the login name.
+func (c catalog) loginSource() string {
+	if c.hasSource("server_principal_name") {
+		return "sqlserver.server_principal_name"
+	}
+	return "sqlserver.username"
+}
+
+func loadCatalog(ctx context.Context, conn *sql.DB) catalog {
+	rows, err := conn.QueryContext(ctx, `SELECT o.object_type, p.name, o.name
+		FROM sys.dm_xe_objects o
+		INNER JOIN sys.dm_xe_packages p ON p.guid = o.package_guid
+		WHERE (o.object_type = N'pred_compare' AND o.name = N'like_i_sql_unicode_string')
+		   OR (o.object_type = N'pred_source' AND p.name = N'sqlserver')`)
+	if err != nil {
+		return defaultCatalog()
+	}
+	defer rows.Close()
+
+	cat := catalog{sources: map[string]bool{}}
+	for rows.Next() {
+		var typ, pkg, name string
+		if err := rows.Scan(&typ, &pkg, &name); err != nil {
+			return defaultCatalog()
+		}
+		switch typ {
+		case "pred_compare":
+			cat.like = pkg + "." + name
+		case "pred_source":
+			cat.sources[name] = true
+		}
+	}
+	if rows.Err() != nil || len(cat.sources) == 0 {
+		return defaultCatalog() // an empty answer means the view was not usable, not that nothing exists
+	}
+	cat.known = true
+	return cat
 }
 
 // Event is one captured statement or error.
@@ -48,6 +155,7 @@ type Event struct {
 	Database   string `json:"database"`
 	Login      string `json:"login"`
 	Host       string `json:"host"`
+	HostPID    int64  `json:"hostPid"` // process ID of the client program on its machine
 	App        string `json:"app"`
 	SessionID  int64  `json:"sessionId"`
 	Object     string `json:"object"`
@@ -69,11 +177,19 @@ var ErrNoPermission = errors.New("el usuario no tiene permiso ALTER ANY EVENT SE
 
 // Start creates and starts an event session filtered to dbName.
 func Start(ctx context.Context, conn *sql.DB, dbName, appName string, opts Options) (*Tracer, error) {
+	opts, err := opts.Normalize()
+	if err != nil {
+		return nil, err
+	}
+	cat := loadCatalog(ctx, conn)
+	if opts.HostPID > 0 && !cat.hasSource("client_pid") {
+		return nil, errors.New("este servidor no permite filtrar por el PID del cliente")
+	}
 	name, err := NewSessionName("")
 	if err != nil {
 		return nil, err
 	}
-	if err := CreateAndStart(ctx, conn, name, buildCreateSQL(name, dbName, appName, opts)); err != nil {
+	if err := CreateAndStart(ctx, conn, name, buildCreateSQL(name, dbName, appName, opts, cat)); err != nil {
 		return nil, err
 	}
 	return &Tracer{Name: name, seen: map[string]bool{}}, nil
@@ -233,12 +349,25 @@ func validName(name string) bool {
 
 func sqlString(s string) string { return "N'" + strings.ReplaceAll(s, "'", "''") + "'" }
 
-func buildCreateSQL(name, dbName, appName string, opts Options) string {
-	const actions = "sqlserver.client_app_name, sqlserver.client_hostname, sqlserver.database_name, sqlserver.username, sqlserver.session_id"
+func buildCreateSQL(name, dbName, appName string, opts Options, cat catalog) string {
+	const actions = "sqlserver.client_app_name, sqlserver.client_hostname, sqlserver.client_pid, sqlserver.database_name, " +
+		"sqlserver.server_principal_name, sqlserver.username, sqlserver.session_id"
 
 	base := "sqlserver.database_name = " + sqlString(dbName)
 	if !opts.IncludeOwn && appName != "" {
 		base += " AND sqlserver.client_app_name <> " + sqlString(appName)
+	}
+	if opts.Login != "" {
+		base += " AND " + textPredicate(cat.loginSource(), opts.Login, false, cat.like)
+	}
+	if opts.Host != "" {
+		base += " AND " + textPredicate("sqlserver.client_hostname", opts.Host, true, cat.like)
+	}
+	if opts.App != "" {
+		base += " AND " + textPredicate("sqlserver.client_app_name", opts.App, true, cat.like)
+	}
+	if opts.HostPID > 0 {
+		base += fmt.Sprintf(" AND sqlserver.client_pid = %d", opts.HostPID)
 	}
 	completed := base
 	if opts.MinDurationMs > 0 {
@@ -324,8 +453,9 @@ func convert(x xeEvent) (Event, bool) {
 	e := Event{
 		Time:      normalizeTime(x.Timestamp),
 		Database:  actions["database_name"],
-		Login:     actions["username"],
+		Login:     firstNonEmpty(actions["server_principal_name"], actions["username"]),
 		Host:      actions["client_hostname"],
+		HostPID:   parseInt(actions["client_pid"]),
 		App:       actions["client_app_name"],
 		SessionID: parseInt(actions["session_id"]),
 	}
@@ -355,6 +485,15 @@ func convert(x xeEvent) (Event, bool) {
 	e.Rows = num("row_count")
 	e.Result = fields["result"].Text
 	return e, true
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 func parseInt(s string) int64 {
