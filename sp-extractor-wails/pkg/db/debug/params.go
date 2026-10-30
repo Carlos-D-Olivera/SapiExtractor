@@ -13,6 +13,7 @@ import (
 	"database/sql"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"sp-extractor-wails/pkg/db/extractors"
@@ -84,11 +85,21 @@ func literal(p Param, in ParamInput) (string, error) {
 		}
 		return v, nil
 	case "bit":
-		switch strings.ToLower(v) {
-		case "1", "true", "verdadero", "si", "sí":
+		b := strings.ToLower(strings.TrimRight(strings.TrimSpace(v), ";"))
+		b = strings.TrimSpace(strings.Trim(strings.TrimPrefix(b, "n"), "'\""))
+		switch b {
+		case "true", "t", "verdadero", "si", "sí", "yes", "y":
 			return "1", nil
-		case "0", "false", "falso", "no":
+		case "false", "f", "falso", "no", "n":
 			return "0", nil
+		}
+		if numberRe.MatchString(b) {
+			if f, err := strconv.ParseFloat(b, 64); err == nil {
+				if f != 0 {
+					return "1", nil
+				}
+				return "0", nil
+			}
 		}
 		return "", fmt.Errorf("el valor de %s debe ser 0/1 o true/false: %q", p.Name, in.Value)
 	case "binary", "varbinary", "image":

@@ -346,6 +346,28 @@ function sqlLanguage(dbType, schema) {
  *  - onToggleResults(): fired on Ctrl+R to toggle query results pane
  *  - viewRef: receives the EditorView
  */
+// Cut / copy / paste for the context menu (the native menu is replaced by ours).
+async function clipboardAction(view, action) {
+  if (!view) return
+  const { from, to } = view.state.selection.main
+  try {
+    if (action === 'paste') {
+      const text = await navigator.clipboard.readText()
+      if (!text) return
+      view.dispatch({
+        changes: { from, to, insert: text },
+        selection: { anchor: from + text.length },
+        scrollIntoView: true,
+        userEvent: 'input.paste',
+      })
+    } else if (from !== to) {
+      await navigator.clipboard.writeText(view.state.sliceDoc(from, to))
+      if (action === 'cut') view.dispatch({ changes: { from, to, insert: '' }, userEvent: 'delete.cut' })
+    }
+  } catch { /* clipboard unavailable or permission denied */ }
+  view.focus()
+}
+
 export default function SqlEditor({
   value,
   onChange,
@@ -619,6 +641,7 @@ export default function SqlEditor({
                 x: event.clientX,
                 y: event.clientY,
                 target: clean,
+                hasSelection: !view.state.selection.main.empty,
               })
               return true
             },
@@ -681,6 +704,10 @@ export default function SqlEditor({
           onOpenScripts={(tbl) => onOpenScriptsRef.current?.(tbl)}
           onGenerateScript={(tbl, scriptId) => onGenerateScriptRef.current?.(tbl, scriptId)}
           onCopyName={(tbl) => onCopyNameRef.current?.(tbl)}
+          hasSelection={contextMenu.hasSelection}
+          onCut={() => clipboardAction(viewRef?.current, 'cut')}
+          onCopy={() => clipboardAction(viewRef?.current, 'copy')}
+          onPaste={() => clipboardAction(viewRef?.current, 'paste')}
         />
       )}
     </>
