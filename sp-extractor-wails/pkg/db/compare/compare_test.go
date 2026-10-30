@@ -267,3 +267,16 @@ func TestCompareTables(t *testing.T) {
 		t.Errorf("summary = %+v, want %+v", res.Summary, want)
 	}
 }
+
+func TestHeaderCaseAfterPreamble(t *testing.T) {
+	a := "SET ANSI_NULLS ON\nGO\ncreate proc dbo.p as select 1"
+	b := "SET ANSI_NULLS ON\nGO\nCREATE PROCEDURE dbo.p AS SELECT 1"
+	opts := Options{IgnoreWhitespace: true}
+	la := prepare(a, opts)
+	if la[2].text != "CREATE PROCEDURE dbo.p as select 1" {
+		t.Fatalf("display text not uppercased: %q", la[2].text)
+	}
+	if !equalText(strings.Replace(a, "as select 1", "AS SELECT 1", 1), b, opts) {
+		t.Fatal("headers with different casing should match")
+	}
+}

@@ -111,8 +111,8 @@ export default function ComparePanel({ workspaceId, connInfo, active, others }) 
       const result = await api.CompareObjects(workspaceId, targetId, { types: ordered, options })
       setRun({ result, targetId, options: { ...options }, types: ordered, targetLabel: target.label })
       setStatusFilter(result.summary.different > 0 ? 'different' : null)
-      // By default the script brings what is different or missing; deleting stays opt-in.
-      setChecked(new Set((result.items || []).filter(i => i.status === 'different' || i.status === 'onlySource').map(itemKey)))
+      // Only what differs is pre-selected; creating (source-only) and deleting stay opt-in.
+      setChecked(new Set((result.items || []).filter(i => i.status === 'different').map(itemKey)))
       setCollapsed(new Set())
     } catch (e) {
       setError(String(e?.message || e))
@@ -541,21 +541,24 @@ function DiffView({ item, diff, changes, loading, error, onlyDiff, setOnlyDiff, 
       ) : changes ? (
         <TableChangesView changes={changes} sourceLabel={sourceLabel} targetLabel={targetLabel} />
       ) : diff ? (
-        <div className="flex-1 overflow-auto font-mono text-[12px] leading-5">
-          <div className="grid w-max min-w-full" style={{ gridTemplateColumns: 'minmax(50%, max-content) minmax(50%, max-content)' }}>
-            <div className="sticky top-0 z-10 px-3 py-1 bg-surface-900 border-b border-r border-surface-700/60 text-[10px] uppercase tracking-widest text-slate-500 font-sans">Origen · {sourceLabel}</div>
-            <div className="sticky top-0 z-10 px-3 py-1 bg-surface-900 border-b border-surface-700/60 text-[10px] uppercase tracking-widest text-slate-500 font-sans">Destino · {targetLabel}</div>
-            {diff.same && (
-              <div className="col-span-2 px-4 py-2 text-xs text-emerald-300 font-sans">Sin diferencias con las opciones actuales.</div>
-            )}
-            {rows.map((r, i) => (r.kind === 'gap' ? (
-              <div key={i} className="col-span-2 px-3 py-0.5 text-center text-[11px] text-slate-500 bg-surface-800/60 font-sans">
-                ⋯ {r.count} línea(s) iguales ⋯
+        <div className="flex-1 min-h-0 flex font-mono text-[12px] leading-5">
+          {[['a', 'Origen', sourceLabel], ['b', 'Destino', targetLabel]].map(([side, title, label]) => (
+            <div key={side} className={clsx('flex-1 min-w-0 overflow-auto', side === 'a' && 'border-r border-surface-700/60')}>
+              <div className="w-max min-w-full">
+                <div className="sticky top-0 z-10 px-3 py-1 bg-surface-900 border-b border-surface-700/60 text-[10px] uppercase tracking-widest text-slate-500 font-sans">{title} · {label}</div>
+                {diff.same && side === 'a' && (
+                  <div className="px-4 py-2 text-xs text-emerald-300 font-sans">Sin diferencias con las opciones actuales.</div>
+                )}
+                {rows.map((r, i) => (r.kind === 'gap' ? (
+                  <div key={i} className="px-3 py-0.5 text-center text-[11px] text-slate-500 bg-surface-800/60 font-sans">
+                    ⋯ {r.count} línea(s) iguales ⋯
+                  </div>
+                ) : (
+                  <Row key={i} r={r} side={side} />
+                )))}
               </div>
-            ) : (
-              <Row key={i} r={r} />
-            )))}
-          </div>
+            </div>
+          ))}
         </div>
       ) : null}
     </>
@@ -570,20 +573,18 @@ const TONES = {
   '': '',
 }
 
-function Row({ r }) {
-  const left = r.kind === 'eq' ? '' : r.kind === 'add' ? 'empty' : r.kind === 'del' ? 'del' : 'chg'
-  const right = r.kind === 'eq' ? '' : r.kind === 'del' ? 'empty' : r.kind === 'add' ? 'add' : 'chg'
-  return (
-    <>
-      <Cell num={r.aLine} text={r.a} tone={left} border />
-      <Cell num={r.bLine} text={r.b} tone={right} />
-    </>
-  )
+function Row({ r, side }) {
+  if (side === 'a') {
+    const tone = r.kind === 'eq' ? '' : r.kind === 'add' ? 'empty' : r.kind === 'del' ? 'del' : 'chg'
+    return <Cell num={r.aLine} text={r.a} tone={tone} />
+  }
+  const tone = r.kind === 'eq' ? '' : r.kind === 'del' ? 'empty' : r.kind === 'add' ? 'add' : 'chg'
+  return <Cell num={r.bLine} text={r.b} tone={tone} />
 }
 
-function Cell({ num, text, tone, border }) {
+function Cell({ num, text, tone }) {
   return (
-    <div className={clsx('flex', TONES[tone], border && 'border-r border-surface-700/60')}>
+    <div className={clsx('flex min-h-5', TONES[tone])}>
       <span className="w-10 flex-shrink-0 text-right pr-2 text-slate-600 select-none">{num || ''}</span>
       <span className="whitespace-pre pr-3 text-slate-200">{text}</span>
     </div>

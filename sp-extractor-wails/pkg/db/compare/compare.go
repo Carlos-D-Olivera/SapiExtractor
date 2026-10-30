@@ -185,6 +185,22 @@ var (
 	header = regexp.MustCompile(`(?i)^(?:create\s+or\s+alter|create\s+or\s+replace|create|alter)\s+(proc(?:edure)?|function|view|trigger)\b`)
 )
 
+// upperHeader rewrites the leading "create/alter [or ...] <kind>" of a line as
+// "CREATE <KIND>" (PROC becomes PROCEDURE), so definitions stored with different casing match.
+func upperHeader(s string, lower bool) string {
+	return header.ReplaceAllStringFunc(s, func(m string) string {
+		sub := header.FindStringSubmatch(m)
+		kind := strings.ToLower(sub[1])
+		if kind == "proc" {
+			kind = "procedure"
+		}
+		if lower {
+			return "create " + kind
+		}
+		return "CREATE " + strings.ToUpper(kind)
+	})
+}
+
 func prepare(text string, opts Options) []line {
 	text = strings.ReplaceAll(strings.ReplaceAll(text, "\r\n", "\n"), "\r", "\n")
 	raw := strings.Split(text, "\n")
@@ -210,23 +226,16 @@ func prepare(text string, opts Options) []line {
 		if opts.IgnoreCase {
 			key = strings.ToLower(key)
 		}
-		if !headerDone && strings.TrimSpace(key) != "" {
+		text := l
+		// The header may follow SET/GO/comment lines, so look for the first line that has one.
+		if !headerDone && header.MatchString(strings.TrimLeft(l, " \t")) {
 			headerDone = true
+			text = upperHeader(strings.TrimLeft(l, " \t"), false)
 			if opts.IgnoreWhitespace {
-				key = header.ReplaceAllStringFunc(key, func(m string) string {
-					sub := header.FindStringSubmatch(m)
-					kind := strings.ToLower(sub[1])
-					if kind == "proc" {
-						kind = "procedure"
-					}
-					if opts.IgnoreCase {
-						return "create " + kind
-					}
-					return "CREATE " + strings.ToUpper(kind)
-				})
+				key = upperHeader(key, opts.IgnoreCase)
 			}
 		}
-		out = append(out, line{text: l, key: key, num: i + 1})
+		out = append(out, line{text: text, key: key, num: i + 1})
 	}
 	return out
 }
