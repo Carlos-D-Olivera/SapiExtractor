@@ -7,12 +7,22 @@ import InsertScriptModal from './InsertScriptModal'
 import StructuredViewerModal from './StructuredViewerModal'
 import QueryHistoryModal, { titleFromSql } from './QueryHistoryModal'
 import TabContextMenu from './TabContextMenu'
+import NewTabContextMenu from './NewTabContextMenu'
 import { detectType } from '../utils/structured'
 
 let tabSeq = 0
 function newTab() {
   tabSeq += 1
   return { id: `q${Date.now()}_${tabSeq}`, title: `Consulta ${tabSeq}`, sql: '', lastSql: '', result: null, error: '', running: false, savedPath: null, savedSql: '' }
+}
+
+export function isQueryTabDirty(tab) {
+  if (!tab) return false
+  const sql = tab.sql ?? ''
+  const savedSql = tab.savedSql ?? ''
+  if (sql === savedSql) return false
+  if (!tab.savedPath && !sql.trim() && !savedSql.trim()) return false
+  return true
 }
 
 const go = () => import('../../wailsjs/go/main/App')
@@ -65,6 +75,7 @@ export default function QueryWorkspace({
   onOpenTableDefinition,
   onOpenTableRelations,
   onOpenTableScripts,
+  onDirtyChange,
 }) {
   const [tabs, setTabs] = useState(() => [newTab()])
   const [activeId, setActiveId] = useState(() => tabs[0].id)
@@ -91,8 +102,17 @@ export default function QueryWorkspace({
   const [showClosed, setShowClosed] = useState(false)
   const [showHistory, setShowHistory] = useState(false)
   const [tabMenu, setTabMenu] = useState(null) // { x, y, tabId }
+  const [plusMenu, setPlusMenu] = useState(null) // { x, y }
   const [stateLoaded, setStateLoaded] = useState(false) // saved tabs have been read; autosave may start
   const lastSaved = useRef('')
+
+  const onDirtyChangeRef = useRef(onDirtyChange)
+  onDirtyChangeRef.current = onDirtyChange
+
+  useEffect(() => {
+    const hasDirty = tabs.some(t => isQueryTabDirty(t))
+    onDirtyChangeRef.current?.(hasDirty)
+  }, [tabs])
 
   const changeFontSize = useCallback((delta) => {
     setFontSize(prev => {
@@ -235,16 +255,31 @@ export default function QueryWorkspace({
         const st = await (await go()).LoadQueryState(workspaceId)
         if (cancelled) return
         if (st?.tabs?.length) {
-          const restored = st.tabs.map(t => ({ ...newTab(), id: t.id, title: t.title || 'Consulta', sql: t.sql || '', lastSql: t.sql || '', savedPath: t.savedPath || null, savedSql: t.sql || '' }))
+          const restored = st.tabs.map(t => ({
+            ...newTab(),
+            id: t.id,
+            title: t.title || 'Consulta',
+            sql: t.sql || '',
+            lastSql: t.sql || '',
+            savedPath: t.savedPath || t.SavedPath || null,
+            savedSql: t.sql || ''
+          }))
           restored.forEach(t => {
             const n = /^Consulta (\d+)$/.exec(t.title)
             if (n) tabSeq = Math.max(tabSeq, Number(n[1]))
           })
           setTabs(restored)
           setActiveId(restored.some(t => t.id === st.activeId) ? st.activeId : restored[0].id)
-          lastSaved.current = JSON.stringify({ tabs: st.tabs.map(t => ({ id: t.id, title: t.title, sql: t.sql })), activeId: st.activeId, closed: st.closed || [] })
+          lastSaved.current = JSON.stringify({
+            tabs: st.tabs.map(t => ({ id: t.id, title: t.title, sql: t.sql, savedPath: t.savedPath || t.SavedPath || '' })),
+            activeId: st.activeId,
+            closed: st.closed || []
+          })
         }
-        setClosedTabs(st?.closed || [])
+        setClosedTabs((st?.closed || []).map(c => ({
+          ...c,
+          savedPath: c.savedPath || c.SavedPath || ''
+        })))
       } catch { /* start with an empty tab */ }
       if (!cancelled) setStateLoaded(true)
     })()
@@ -295,25 +330,72 @@ export default function QueryWorkspace({
     setActiveId(t.id)
   }
 
-  const closeTab = (id) => {
-    if (tabs.length === 1) return
+  const doCloseTab = useCallback((id) => {
     const idx = tabs.findIndex(t => t.id === id)
     if (idx < 0) return
     const closing = tabs[idx]
-    const next = tabs.filter(t => t.id !== id)
     // Keep what was written so it can be reopened later.
     if (closing.sql.trim()) {
       setClosedTabs(prev => [
-        { id: closing.id, title: closing.title, sql: closing.sql, closedAt: Date.now() },
+        { id: closing.id, title: closing.title, sql: closing.sql, savedPath: closing.savedPath || '', closedAt: Date.now() },
         ...prev.filter(c => c.id !== closing.id),
       ].slice(0, 50))
     }
+    if (tabs.length === 1) {
+      const fresh = newTab()
+      setTabs([fresh])
+      setActiveId(fresh.id)
+      return
+    }
+    const next = tabs.filter(t => t.id !== id)
     if (id === activeId) setActiveId(next[Math.max(0, idx - 1)].id)
     setTabs(next)
+  }, [tabs, activeId])
+
+  const [tabToClose, setTabToClose] = useState(null)
+
+  const requestCloseTab = useCallback((id) => {
+    const tab = tabs.find(t => t.id === id)
+    if (!tab) return
+    const currentTab = (tab.id === activeId && editorRef.current)
+      ? { ...tab, sql: editorRef.current.state.doc.toString() }
+      : tab
+    if (isQueryTabDirty(currentTab)) {
+      setTabToClose(currentTab)
+    } else {
+      doCloseTab(id)
+    }
+  }, [tabs, activeId, doCloseTab])
+
+  const handleConfirmSaveAndClose = async () => {
+    if (!tabToClose) return
+    const current = tabsRef.current?.find(t => t.id === tabToClose.id) || tabToClose
+    const saved = await handleSave(current)
+    if (saved) {
+      const idToClose = tabToClose.id
+      setTabToClose(null)
+      doCloseTab(idToClose)
+    }
   }
 
+  const handleConfirmDiscardAndClose = () => {
+    if (!tabToClose) return
+    const idToClose = tabToClose.id
+    setTabToClose(null)
+    doCloseTab(idToClose)
+  }
+
+  useEffect(() => {
+    if (!tabToClose) return
+    const handleKey = (e) => {
+      if (e.key === 'Escape') setTabToClose(null)
+    }
+    window.addEventListener('keydown', handleKey)
+    return () => window.removeEventListener('keydown', handleKey)
+  }, [tabToClose])
+
   const reopenClosed = (c) => {
-    const t = { ...newTab(), title: c.title, sql: c.sql }
+    const t = { ...newTab(), title: c.title, sql: c.sql, savedPath: c.savedPath || null, savedSql: c.sql }
     setTabs(prev => [...prev, t])
     setActiveId(t.id)
     setClosedTabs(prev => prev.filter(x => x.id !== c.id))
@@ -358,53 +440,104 @@ export default function QueryWorkspace({
     patchTab(tab.id, { sql: '', lastSql: '', result: null, error: '' })
   }
 
+  // Opens an existing .sql file from disk and loads it into a new tab
+  const handleOpenSqlFile = useCallback(async () => {
+    try {
+      const api = await go()
+      const res = await api.OpenSqlFile()
+      if (!res || !res.path) return
+      const t = {
+        ...newTab(),
+        title: res.name || 'Consulta',
+        sql: res.content || '',
+        lastSql: res.content || '',
+        savedPath: res.path,
+        savedSql: res.content || '',
+      }
+      setTabs(prev => [...prev, t])
+      setActiveId(t.id)
+      setCopyToast(`Abierto: ${res.name}.sql`)
+      setTimeout(() => setCopyToast(''), 2500)
+    } catch (e) {
+      console.error('Error opening SQL file:', e)
+    }
+  }, [])
+
+  const handleOpenSqlFileRef = useRef(handleOpenSqlFile)
+  handleOpenSqlFileRef.current = handleOpenSqlFile
+
   // "Guardar como…" — always opens the native save dialog
   const handleSaveAs = useCallback(async (tab, customSql) => {
-    if (!tab) return
+    if (!tab) return false
     const currentTab = tabsRef.current?.find(t => t.id === tab.id) || tab
     const textToSave = customSql !== undefined
       ? customSql
       : ((currentTab.id === activeRef.current?.id && editorRef.current)
         ? editorRef.current.state.doc.toString()
         : currentTab.sql)
-    if (!textToSave.trim()) return
+    if (!textToSave.trim()) return false
     try {
       const api = await go()
       const path = await api.SaveScript(currentTab.title + '.sql', textToSave)
       if (path) {
-        const name = path.split(/[\\\/]/).pop().replace(/\.sql$/i, '')
+        const name = path.split(/[\\/]/).pop().replace(/\.sql$/i, '')
         patchTab(currentTab.id, { savedPath: path, title: name, sql: textToSave, savedSql: textToSave })
-        setCopyToast(`Guardado: ${path.split(/[\\\/]/).pop()}`)
+        setCopyToast(`Guardado: ${path.split(/[\\/]/).pop()}`)
         setTimeout(() => setCopyToast(''), 2500)
+        // Immediately persist state to database store so savedPath is never lost
+        try {
+          const nextTabs = (tabsRef.current || []).map(t =>
+            t.id === currentTab.id
+              ? { id: t.id, title: name, sql: textToSave, savedPath: path }
+              : { id: t.id, title: t.title, sql: t.sql, savedPath: t.savedPath || '' }
+          )
+          await api.SaveQueryState(workspaceId, { tabs: nextTabs, activeId, closed: closedTabs, updatedAt: 0 })
+          lastSaved.current = JSON.stringify({ tabs: nextTabs, activeId, closed: closedTabs })
+        } catch { /* ignore */ }
+        return true
       }
+      return false
     } catch (e) {
       console.error('SaveAs error:', e)
+      return false
     }
-  }, [patchTab])
+  }, [workspaceId, activeId, closedTabs, patchTab])
 
   // "Guardar" — overwrites existing file silently; opens dialog if new
   const handleSave = useCallback(async (tab) => {
-    if (!tab) return
+    if (!tab) return false
     const currentTab = tabsRef.current?.find(t => t.id === tab.id) || tab
     const textToSave = (currentTab.id === activeRef.current?.id && editorRef.current)
       ? editorRef.current.state.doc.toString()
       : currentTab.sql
-    if (!textToSave.trim()) return
+    if (!textToSave.trim()) return false
 
     if (currentTab.savedPath) {
       try {
         const api = await go()
         await api.WriteFile(currentTab.savedPath, textToSave)
         patchTab(currentTab.id, { sql: textToSave, savedSql: textToSave })
-        setCopyToast(`Guardado: ${currentTab.savedPath.split(/[\\\/]/).pop()}`)
+        setCopyToast(`Guardado: ${currentTab.savedPath.split(/[\\/]/).pop()}`)
         setTimeout(() => setCopyToast(''), 2500)
+        // Immediately persist state to database store
+        try {
+          const nextTabs = (tabsRef.current || []).map(t =>
+            t.id === currentTab.id
+              ? { id: t.id, title: t.title, sql: textToSave, savedPath: currentTab.savedPath }
+              : { id: t.id, title: t.title, sql: t.sql, savedPath: t.savedPath || '' }
+          )
+          await api.SaveQueryState(workspaceId, { tabs: nextTabs, activeId, closed: closedTabs, updatedAt: 0 })
+          lastSaved.current = JSON.stringify({ tabs: nextTabs, activeId, closed: closedTabs })
+        } catch { /* ignore */ }
+        return true
       } catch (e) {
         console.error('Save error:', e)
+        return false
       }
     } else {
-      await handleSaveAs(currentTab, textToSave)
+      return await handleSaveAs(currentTab, textToSave)
     }
-  }, [handleSaveAs, patchTab])
+  }, [workspaceId, activeId, closedTabs, handleSaveAs, patchTab])
 
   const handleSaveRef = useRef(handleSave)
   handleSaveRef.current = handleSave
@@ -520,6 +653,9 @@ export default function QueryWorkspace({
       } else if ((e.ctrlKey || e.metaKey) && (e.key === 'n' || e.key === 'N')) {
         e.preventDefault()
         addTabRef.current?.()
+      } else if ((e.ctrlKey || e.metaKey) && !e.shiftKey && (e.key === 'o' || e.key === 'O')) {
+        e.preventDefault()
+        handleOpenSqlFileRef.current?.()
       } else if ((e.ctrlKey || e.metaKey) && !e.shiftKey && (e.key === 's' || e.key === 'S')) {
         e.preventDefault()
         handleSaveRef.current?.(activeRef.current)
@@ -578,12 +714,12 @@ export default function QueryWorkspace({
           >
             <Table2 className="w-3.5 h-3.5" />
             {t.title}
-            {((t.sql ?? '') !== (t.savedSql ?? '')) && (
+            {isQueryTabDirty(t) && (
               <span className="w-1.5 h-1.5 rounded-full bg-white flex-shrink-0 opacity-80" title="Cambios sin guardar" />
             )}
             {tabs.length > 1 && (
               <button
-                onClick={e => { e.stopPropagation(); closeTab(t.id) }}
+                onClick={e => { e.stopPropagation(); requestCloseTab(t.id) }}
                 className="p-0.5 rounded hover:bg-red-500/20 hover:text-red-400 text-slate-600"
                 title="Cerrar pestaña"
               >
@@ -594,8 +730,13 @@ export default function QueryWorkspace({
         ))}
         <button
           onClick={addTab}
+          onContextMenu={(e) => {
+            e.preventDefault()
+            e.stopPropagation()
+            setPlusMenu({ x: e.clientX, y: e.clientY })
+          }}
           className="p-1.5 rounded text-slate-500 hover:text-brand-light hover:bg-surface-700/50 mb-0.5"
-          title="Nueva pestaña de consulta (Ctrl+N)"
+          title="Nueva pestaña de consulta (Ctrl+N) · Clic derecho para abrir .sql"
         >
           <Plus className="w-4 h-4" />
         </button>
@@ -757,6 +898,7 @@ export default function QueryWorkspace({
                 fontSize={fontSize}
                 viewRef={editorRef}
                 onSave={() => handleSaveRef.current?.(active)}
+                onOpenSql={handleOpenSqlFile}
                 onRun={selection => runQuery(active, selection)}
                 onAltF1={table => onOpenTableDefinition?.(table)}
                 onSelectTop100={handleSelectTop100}
@@ -825,6 +967,17 @@ export default function QueryWorkspace({
         />
       )}
 
+      {/* New tab menu (right-click on + button) */}
+      {plusMenu && (
+        <NewTabContextMenu
+          x={plusMenu.x}
+          y={plusMenu.y}
+          onClose={() => setPlusMenu(null)}
+          onOpenSql={() => { setPlusMenu(null); handleOpenSqlFile() }}
+          onNewTab={() => { setPlusMenu(null); addTab() }}
+        />
+      )}
+
       {/* Tab context menu (right-click on tab) */}
       {tabMenu && (
         <TabContextMenu
@@ -834,7 +987,7 @@ export default function QueryWorkspace({
           onClose={() => setTabMenu(null)}
           onSave={(tab) => { setTabMenu(null); handleSaveRef.current?.(tab) }}
           onSaveAs={(tab) => { setTabMenu(null); handleSaveAsRef.current?.(tab) }}
-          onCloseTab={(tab) => { setTabMenu(null); closeTab(tab.id) }}
+          onCloseTab={(tab) => { setTabMenu(null); requestCloseTab(tab.id) }}
         />
       )}
 
@@ -843,6 +996,55 @@ export default function QueryWorkspace({
         <div className="fixed bottom-4 right-4 z-50 bg-[#18191a] border border-brand/70 text-white text-xs px-3 py-1.5 rounded-lg shadow-xl flex items-center gap-2 pointer-events-none transition-all">
           <Check className="w-3.5 h-3.5 text-emerald-400" />
           <span>{copyToast}</span>
+        </div>
+      )}
+
+      {/* Confirm close tab with unsaved changes */}
+      {tabToClose && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-fade-in">
+          <div className="glass rounded-2xl w-[440px] max-w-[95vw] overflow-hidden shadow-2xl shadow-black/60 animate-slide-up border border-surface-600">
+            <div className="flex items-center gap-3 px-6 py-4 border-b border-surface-600">
+              <div className="p-2 rounded-lg bg-amber-500/20 border border-amber-500/30">
+                <AlertCircle className="w-5 h-5 text-amber-400" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <h2 className="text-sm font-semibold text-white">¿Guardar cambios?</h2>
+                <p className="text-xs text-slate-400 mt-0.5 truncate" title={tabToClose.title}>
+                  {tabToClose.title}
+                </p>
+              </div>
+            </div>
+
+            <div className="px-6 py-4">
+              <p className="text-xs text-slate-300 leading-relaxed">
+                La consulta tiene cambios sin guardar. Si la cierras sin guardar, los cambios se perderán.
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 px-6 py-3 border-t border-surface-600 bg-surface-900/40">
+              <button
+                type="button"
+                onClick={() => setTabToClose(null)}
+                className="btn-secondary text-xs py-1.5 px-3"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDiscardAndClose}
+                className="px-3 py-1.5 rounded-lg text-xs font-medium text-red-400 hover:text-white hover:bg-red-500/20 border border-red-500/30 transition-colors"
+              >
+                No guardar
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmSaveAndClose}
+                className="btn-primary text-xs py-1.5 px-3"
+              >
+                Guardar
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

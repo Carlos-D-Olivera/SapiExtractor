@@ -126,6 +126,10 @@ export function OpenObject(arg1, arg2) {
   return window['go']['main']['App']['OpenObject'](arg1, arg2);
 }
 
+export function OpenSqlFile() {
+  return window['go']['main']['App']['OpenSqlFile']();
+}
+
 export function PickDirectory() {
   return window['go']['main']['App']['PickDirectory']();
 }

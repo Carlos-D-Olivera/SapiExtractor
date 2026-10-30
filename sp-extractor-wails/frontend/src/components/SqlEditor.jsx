@@ -353,6 +353,7 @@ export default function SqlEditor({
   schema,
   autocompletes,
   onSave,
+  onOpenSql,
   onRun,
   onAltF1,
   onSelectTop100,
@@ -376,7 +377,8 @@ export default function SqlEditor({
   const onOpenScriptsRef = useRef(onOpenScripts)
   const onGenerateScriptRef = useRef(onGenerateScript)
   const onCopyNameRef = useRef(onCopyName)
-  const onSaveRef = useRef(null) // set externally via SqlEditor prop onSave
+  const onSaveRef = useRef(null)
+  const onOpenSqlRef = useRef(null) // set externally via SqlEditor prop onSave
   const onToggleResultsRef = useRef(onToggleResults)
   const autocompletesRef = useRef(autocompletes)
 
@@ -389,6 +391,7 @@ export default function SqlEditor({
   onGenerateScriptRef.current = onGenerateScript
   onCopyNameRef.current = onCopyName
   onSaveRef.current = onSave
+  onOpenSqlRef.current = onOpenSql
   onToggleResultsRef.current = onToggleResults
   autocompletesRef.current = autocompletes
 
@@ -503,6 +506,14 @@ export default function SqlEditor({
       stopPropagation: true,
       run: () => {
         onSaveRef.current?.()
+        return true
+      },
+    }, {
+      key: 'Mod-o',
+      preventDefault: true,
+      stopPropagation: true,
+      run: () => {
+        onOpenSqlRef.current?.()
         return true
       },
     }, {

@@ -57,6 +57,7 @@ export default function WorkspaceView({
   setView,
   pendingConn,
   onOpenConnDialog,
+  onDirtyChange,
 }) {
   const [objType, setObjType] = useState('STORED_PROCEDURE')
   const [objects, setObjects] = useState([])
@@ -602,6 +603,7 @@ export default function WorkspaceView({
             onOpenTableDefinition={handleOpenTableDefinition}
             onOpenTableRelations={handleOpenTableRelations}
             onOpenTableScripts={handleOpenTableScripts}
+            onDirtyChange={(dirty) => onDirtyChange?.(workspaceId, dirty)}
           />
         </div>
       )}

@@ -70,6 +70,8 @@ export function LoadSession():Promise<store.Session>;
 
 export function OpenObject(arg1:string,arg2:db.DbObject):Promise<void>;
 
+export function OpenSqlFile():Promise<Record<string, string>>;
+
 export function PickDirectory():Promise<string>;
 
 export function PrepareProcedureDebug(arg1:string,arg2:string,arg3:string):Promise<debug.Prefill>;
