@@ -70,6 +70,8 @@ export function LoadSession():Promise<store.Session>;
 
 export function OpenObject(arg1:string,arg2:db.DbObject):Promise<void>;
 
+export function OpenSqlFile():Promise<Record<string, string>>;
+
 export function PickDirectory():Promise<string>;
 
 export function PrepareProcedureDebug(arg1:string,arg2:string,arg3:string):Promise<debug.Prefill>;
@@ -95,3 +97,5 @@ export function StartTrace(arg1:string,arg2:trace.Options):Promise<void>;
 export function StopTrace(arg1:string):Promise<void>;
 
 export function TraceStatus(arg1:string):Promise<boolean>;
+
+export function WriteFile(arg1:string,arg2:string):Promise<void>;
