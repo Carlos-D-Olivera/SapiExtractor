@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useLayoutEffect } from 'react'
 import { createPortal } from 'react-dom'
-import { Eye, Table2, FileCode2, Network, Copy, Check, ChevronRight } from 'lucide-react'
+import { Scissors, ClipboardPaste, Eye, Table2, FileCode2, Network, Copy, Check, ChevronRight } from 'lucide-react'
 import clsx from 'clsx'
 
 export default function SqlContextMenu({
@@ -14,6 +14,10 @@ export default function SqlContextMenu({
   onOpenScripts,
   onGenerateScript,
   onCopyName,
+  hasSelection,
+  onCut,
+  onCopy,
+  onPaste,
 }) {
   const menuRef = useRef(null)
   const submenuRef = useRef(null)
@@ -113,6 +117,33 @@ export default function SqlContextMenu({
           {hasTarget ? target : '(Sin objeto detectado)'}
         </span>
       </div>
+
+      {/* Edición: cortar / copiar / pegar */}
+      {[
+        { label: 'Cortar', icon: Scissors, key: 'Ctrl+X', fn: onCut, needsSel: true },
+        { label: 'Copiar', icon: Copy, key: 'Ctrl+C', fn: onCopy, needsSel: true },
+        { label: 'Pegar', icon: ClipboardPaste, key: 'Ctrl+V', fn: onPaste, needsSel: false },
+      ].map(a => {
+        const enabled = !a.needsSel || hasSelection
+        return (
+          <button
+            key={a.label}
+            type="button"
+            disabled={!enabled}
+            onClick={handleAction(a.fn)}
+            className={clsx(
+              'w-full flex items-center gap-2.5 px-3 py-1.5 text-left transition-colors',
+              enabled ? 'text-slate-200 hover:text-white hover:bg-brand-dark/40 cursor-pointer' : 'text-slate-600 cursor-not-allowed'
+            )}
+          >
+            <a.icon className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
+            <span className="flex-1 font-medium">{a.label}</span>
+            <span className="font-mono text-[10px] text-slate-400 bg-surface-800/80 px-1.5 py-0.5 rounded border border-surface-700/60">{a.key}</span>
+          </button>
+        )
+      })}
+
+      <div className="my-1 border-t border-surface-700/60" />
 
       {/* 1. Ir a definición (Alt+F1) */}
       <button

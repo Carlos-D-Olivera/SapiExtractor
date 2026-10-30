@@ -28,6 +28,7 @@ var (
 	execKeyword  = regexp.MustCompile(`(?i)\bexec(?:ute)?\s+`)
 	setVarRe     = regexp.MustCompile(`(?is)\bset\s+(@[A-Za-z0-9_]+)\s*=\s*(N?'(?:[^']|'')*'|[^\s]+)`)
 	outputSuffix = regexp.MustCompile(`(?i)\s+out(?:put)?$`)
+	goLineRe     = regexp.MustCompile(`(?im)^[ 	]*go[ 	]*;?[ 	]*$`)
 	returnVarRe  = regexp.MustCompile(`^@[A-Za-z0-9_#$@]+\s*$`)
 )
 
@@ -74,6 +75,10 @@ func ParseExec(text string) (ExecCall, bool) {
 		call.Schema = parts[len(parts)-2]
 	}
 
+	// A trailing GO (batch separator) is not part of the last argument.
+	if loc := goLineRe.FindStringIndex(rest); loc != nil {
+		rest = rest[:loc[0]]
+	}
 	rest = strings.TrimSpace(strings.TrimRight(strings.TrimSpace(rest), ";"))
 	if rest == "" {
 		return call, true

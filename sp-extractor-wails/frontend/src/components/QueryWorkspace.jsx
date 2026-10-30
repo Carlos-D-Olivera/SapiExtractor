@@ -1093,8 +1093,59 @@ function summarize(value) {
   return oneLine.length > SUMMARY_CHARS || value.length > SUMMARY_CHARS * 2 ? `${oneLine.slice(0, SUMMARY_CHARS)}…` : oneLine
 }
 
+const cellText = (v) => (v === null || v === undefined ? '' : String(v))
+const MIN_GRID_HEIGHT = 80
+
 function ResultGrid({ set, index, total, fontSize, onInsertScript, onOpenCell }) {
   const { columns = [], rows = [], types = [] } = set
+  const [height, setHeight] = useState(null) // null = automatic (up to 45% of the window)
+  const [sel, setSel] = useState(null) // { r, c } selected cell
+  const [menu, setMenu] = useState(null) // { x, y, r, c }
+  const boxRef = useRef(null)
+
+  useEffect(() => {
+    if (!menu) return
+    const close = () => setMenu(null)
+    const onKey = (e) => { if (e.key === 'Escape') close() }
+    window.addEventListener('pointerdown', close)
+    window.addEventListener('keydown', onKey)
+    window.addEventListener('blur', close)
+    return () => {
+      window.removeEventListener('pointerdown', close)
+      window.removeEventListener('keydown', onKey)
+      window.removeEventListener('blur', close)
+    }
+  }, [menu])
+
+  const copy = (text) => { try { navigator.clipboard?.writeText(text) } catch { /* clipboard unavailable */ } }
+  const copyCell = (r, c) => copy(cellText(rows[r]?.[c]))
+  const copyRow = (r) => copy(rows[r].map(cellText).join('\t'))
+  const copyColumn = (c, withHeader) => copy([...(withHeader ? [columns[c]] : []), ...rows.map(row => cellText(row[c]))].join('\n'))
+  const copyAll = () => copy([columns.join('\t'), ...rows.map(row => row.map(cellText).join('\t'))].join('\n'))
+
+  const onKeyDown = (e) => {
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'c' || e.key === 'C') && !window.getSelection()?.toString() && sel) {
+      e.preventDefault()
+      copyCell(sel.r, sel.c)
+    }
+  }
+
+  // Drag the bottom edge to resize this result set, like Management Studio.
+  const startResize = (e) => {
+    e.preventDefault()
+    const startY = e.clientY
+    const startH = boxRef.current?.getBoundingClientRect().height || 300
+    const move = (ev) => setHeight(Math.max(MIN_GRID_HEIGHT, startH + ev.clientY - startY))
+    const up = () => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', up)
+      document.body.style.userSelect = ''
+    }
+    document.body.style.userSelect = 'none'
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', up)
+  }
+
   return (
     <div className="flex flex-col min-h-0">
       <div className="flex items-center gap-2 mb-1">
@@ -1117,7 +1168,13 @@ function ResultGrid({ set, index, total, fontSize, onInsertScript, onOpenCell })
           Mostrando solo las primeras {rows.length} filas; hay más. Sube el límite o acota la consulta.
         </div>
       )}
-      <div className="overflow-auto rounded-xl border border-surface-600" style={{ maxHeight: '45vh' }}>
+      <div
+        ref={boxRef}
+        tabIndex={0}
+        onKeyDown={onKeyDown}
+        className="overflow-auto rounded-t-xl border border-surface-600 outline-none select-text"
+        style={height ? { height } : { maxHeight: '45vh' }}
+      >
         <table className="border-collapse" style={{ fontSize: `${Math.min(fontSize || 12, 20)}px` }}>
           <thead className="sticky top-0 z-10">
             <tr style={{ background: '#111B2C' }}>
@@ -1146,12 +1203,20 @@ function ResultGrid({ set, index, total, fontSize, onInsertScript, onOpenCell })
                     <td
                       key={c}
                       className={`px-3 py-1 font-mono whitespace-nowrap border-r border-surface-700/60 align-top ${
+                        sel && sel.r === r && sel.c === c ? 'outline outline-1 -outline-offset-1 outline-brand-light bg-brand-dark/30 ' : ''}${
                         structured ? 'max-w-[320px] overflow-hidden text-ellipsis text-sky-300 cursor-pointer hover:bg-sky-500/10 underline decoration-dotted underline-offset-2' : 'text-slate-200'}`}
                       title={structured ? `Clic para ver como ${structured.toUpperCase()}` : undefined}
-                      onClick={structured ? () => {
+                      onClick={() => {
+                        setSel({ r, c })
+                        if (!structured) return
                         if (window.getSelection()?.toString()) return // the user is selecting text, not opening
                         onOpenCell({ value: cell, hint: structured, subtitle: `${columns[c]} · fila ${r + 1}` })
-                      } : undefined}
+                      }}
+                      onContextMenu={(e) => {
+                        e.preventDefault()
+                        setSel({ r, c })
+                        setMenu({ x: e.clientX, y: e.clientY, r, c })
+                      }}
                     >
                       {cell === null
                         ? <span className="text-slate-600 italic">NULL</span>
@@ -1168,6 +1233,37 @@ function ResultGrid({ set, index, total, fontSize, onInsertScript, onOpenCell })
           </tbody>
         </table>
       </div>
+      <div
+        onPointerDown={startResize}
+        onDoubleClick={() => setHeight(null)}
+        className="h-2 flex-shrink-0 cursor-row-resize rounded-b-xl border border-t-0 border-surface-600 bg-surface-800/60 hover:bg-brand-dark/50 transition-colors"
+        title="Arrastra para cambiar el alto · doble clic para restablecer"
+      />
+      {menu && (
+        <div
+          className="fixed z-50 min-w-[190px] rounded-lg border border-surface-600/90 py-1 text-xs shadow-2xl select-none"
+          style={{ top: menu.y, left: menu.x, background: '#18191a' }}
+          onPointerDown={(e) => e.stopPropagation()}
+          onContextMenu={(e) => e.preventDefault()}
+        >
+          {[
+            ['Copiar celda', () => copyCell(menu.r, menu.c)],
+            ['Copiar fila', () => copyRow(menu.r)],
+            ['Copiar columna', () => copyColumn(menu.c, false)],
+            ['Copiar columna con encabezado', () => copyColumn(menu.c, true)],
+            ['Copiar todo con encabezados', copyAll],
+          ].map(([label, fn]) => (
+            <button
+              key={label}
+              type="button"
+              onClick={() => { fn(); setMenu(null) }}
+              className="w-full px-3 py-1.5 text-left text-slate-200 hover:text-white hover:bg-brand-dark/40"
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
