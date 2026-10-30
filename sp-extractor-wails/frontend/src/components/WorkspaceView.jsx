@@ -3,7 +3,7 @@ import {
   Settings,
   Database, RefreshCw, Download,
   Table2, Columns, FunctionSquare, Zap, Eye, Loader2,
-  AlertCircle, FolderOpen, Plug, Terminal, Activity
+  AlertCircle, FolderOpen, Plug, Terminal, Activity, GitCompare
 } from 'lucide-react'
 import clsx from 'clsx'
 
@@ -11,6 +11,7 @@ import ObjectTable from './ObjectTable'
 import ExportBar from './ExportBar'
 import PreviewPanel from './PreviewPanel'
 import TracePanel from './TracePanel'
+import ComparePanel from './ComparePanel'
 import DebugPanel from './DebugPanel'
 import ErrorBoundary from './ErrorBoundary'
 import QueryWorkspace from './QueryWorkspace'
@@ -60,6 +61,7 @@ export default function WorkspaceView({
   onOpenConnDialog,
   onDirtyChange,
   onOpenSettings,
+  otherWorkspaces,
 }) {
   const [objType, setObjType] = useState('STORED_PROCEDURE')
   const [objects, setObjects] = useState([])
@@ -609,6 +611,12 @@ export default function WorkspaceView({
                 onClick={() => setView('trace')}
               />
             )}
+            <SidebarItem
+              icon={GitCompare}
+              label="Comparar"
+              selected={view === 'compare'}
+              onClick={() => setView('compare')}
+            />
           </>
         )}
         {/* Inferior izquierdo: Botón Configuración */}
@@ -657,6 +665,21 @@ export default function WorkspaceView({
             onOpenInQuery={openScriptInQuery}
             onDebugProc={debugFromTrace}
           />
+        </div>
+      )}
+
+      {/* Compare keeps its last result while you switch views */}
+      {connInfo && (
+        <div className={clsx('flex-1 flex flex-col overflow-hidden', view !== 'compare' && 'hidden')}>
+          <ErrorBoundary>
+            <ComparePanel
+              key={connSeq}
+              workspaceId={workspaceId}
+              connInfo={connInfo}
+              active={isActive && view === 'compare'}
+              others={otherWorkspaces}
+            />
+          </ErrorBoundary>
         </div>
       )}
 
