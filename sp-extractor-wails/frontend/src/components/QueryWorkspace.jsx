@@ -2,7 +2,7 @@ import { useState, useCallback, useRef, useEffect } from 'react'
 import { Play, Plus, X, Loader2, AlertCircle, Ban, Clock, Table2, Trash2, Sparkles, FileCode2, PanelBottomClose, PanelBottomOpen, Check, History, RotateCcw, Save } from 'lucide-react'
 import clsx from 'clsx'
 import SqlEditor, { getIdentifierAtCursor, stripQuotes } from './SqlEditor'
-import AutocompletesModal, { getStoredAutocompletes, loadStoredAutocompletes, saveStoredAutocompletes } from './AutocompletesModal'
+import { getStoredAutocompletes, loadStoredAutocompletes } from './AutocompletesModal'
 import InsertScriptModal from './InsertScriptModal'
 import StructuredViewerModal from './StructuredViewerModal'
 import QueryHistoryModal, { titleFromSql } from './QueryHistoryModal'
@@ -34,6 +34,17 @@ const EXPLICIT_LIMIT = /\b(top\s*\(?\s*\d+|limit\s+\d+|fetch\s+(first|next)\b)/i
 const DEFAULT_FONT_SIZE = 12
 const MIN_FONT_SIZE = 9
 const MAX_FONT_SIZE = 32
+
+function getStoredRowLimit() {
+  try {
+    const v = localStorage.getItem('sp_extractor_default_row_limit')
+    if (v !== null) {
+      const n = Number(v)
+      if (Number.isFinite(n) && n >= 0) return n
+    }
+  } catch { /* ignore */ }
+  return DEFAULT_ROW_LIMIT
+}
 
 function getStoredFontSize() {
   try {
@@ -83,7 +94,7 @@ export default function QueryWorkspace({
   tabsRef.current = tabs
   const [insertTarget, setInsertTarget] = useState(null)
   const [viewer, setViewer] = useState(null) // JSON / XML cell open in the viewer
-  const [maxRows, setMaxRows] = useState(DEFAULT_ROW_LIMIT)
+  const [maxRows, setMaxRows] = useState(() => getStoredRowLimit())
   const [showResults, setShowResults] = useState(true)
 
   const toggleResults = useCallback(() => {
@@ -97,7 +108,7 @@ export default function QueryWorkspace({
   const editorRef = useRef(null)
   const lastNonce = useRef(incomingSql?.nonce)
   const [autocompletes, setAutocompletes] = useState(() => getStoredAutocompletes())
-  const [showAutocompletesModal, setShowAutocompletesModal] = useState(false)
+
   const [closedTabs, setClosedTabs] = useState([])      // recently closed tabs of this database
   const [showClosed, setShowClosed] = useState(false)
   const [showHistory, setShowHistory] = useState(false)
@@ -217,9 +228,21 @@ export default function QueryWorkspace({
       }
     }
     window.addEventListener('spextractor:autocompletes-updated', handleUpdate)
+    const handleSettingsUpdated = (e) => {
+      if (e.detail) {
+        if (e.detail.editorFontSize) {
+          setFontSize(e.detail.editorFontSize)
+        }
+        if (e.detail.defaultRowLimit !== undefined) {
+          setMaxRows(e.detail.defaultRowLimit)
+        }
+      }
+    }
+    window.addEventListener('spextractor:settings-updated', handleSettingsUpdated)
     return () => {
       mounted = false
       window.removeEventListener('spextractor:autocompletes-updated', handleUpdate)
+      window.removeEventListener('spextractor:settings-updated', handleSettingsUpdated)
     }
   }, [])
 
@@ -772,17 +795,6 @@ export default function QueryWorkspace({
               Limpiar
             </button>
             <button
-              onClick={() => setShowAutocompletesModal(true)}
-              className="btn-secondary text-xs py-1.5 px-3 flex items-center gap-1.5"
-              title="Configurar códigos de autocompletado rápido con TAB"
-            >
-              <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-              AutoCompletes
-              <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-amber-400/20 text-amber-300 font-mono font-bold">
-                {autocompletes.length}
-              </span>
-            </button>
-            <button
               onClick={() => setShowHistory(true)}
               className="btn-secondary text-xs py-1.5 px-3 flex items-center gap-1.5"
               title="Historial de consultas ejecutadas en esta base de datos"
@@ -923,14 +935,7 @@ export default function QueryWorkspace({
         </>
       )}
 
-      {/* AutoCompletes Modal */}
-      {showAutocompletesModal && (
-        <AutocompletesModal
-          autocompletes={autocompletes}
-          onSave={handleSaveAutocompletes}
-          onClose={() => setShowAutocompletesModal(false)}
-        />
-      )}
+      
 
       {/* INSERT script generator */}
       {insertTarget && (

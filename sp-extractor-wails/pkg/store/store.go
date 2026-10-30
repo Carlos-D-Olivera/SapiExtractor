@@ -211,19 +211,31 @@ type HistoryPage struct {
 
 // Settings are the user-controlled options of the persistence features.
 type Settings struct {
-	HistoryEnabled bool `json:"historyEnabled"`
-	RetentionDays  int  `json:"retentionDays"`
-	MaxEntries     int  `json:"maxEntries"`
-	AutoRestore    bool `json:"autoRestore"` // restore the previous session without asking
+	HistoryEnabled    bool   `json:"historyEnabled"`
+	RetentionDays     int    `json:"retentionDays"`
+	MaxEntries        int    `json:"maxEntries"`
+	AutoRestore       bool   `json:"autoRestore"` // restore the previous session without asking
 	// CheckUpdates looks for a newer release when the app starts.
-	CheckUpdates bool `json:"checkUpdates"`
+	CheckUpdates      bool   `json:"checkUpdates"`
 	// SkippedVersion is a release the user chose not to be reminded about.
-	SkippedVersion string `json:"skippedVersion"`
+	SkippedVersion    string `json:"skippedVersion"`
+	DefaultRowLimit   int    `json:"defaultRowLimit"`
+	EditorFontSize    int    `json:"editorFontSize"`
+	DefaultOutDir     string `json:"defaultOutDir"`
+	IncludeDropHeader bool   `json:"includeDropHeader"`
 }
 
 // DefaultSettings are used until the user changes them.
 func DefaultSettings() Settings {
-	return Settings{HistoryEnabled: true, RetentionDays: DefaultRetention, MaxEntries: DefaultMaxEntry, CheckUpdates: true}
+	return Settings{
+		HistoryEnabled:    true,
+		RetentionDays:     DefaultRetention,
+		MaxEntries:        DefaultMaxEntry,
+		CheckUpdates:      true,
+		DefaultRowLimit:   100,
+		EditorFontSize:    12,
+		IncludeDropHeader: true,
+	}
 }
 
 func (st Settings) sane() Settings {
@@ -232,6 +244,12 @@ func (st Settings) sane() Settings {
 	}
 	if st.MaxEntries <= 0 {
 		st.MaxEntries = DefaultMaxEntry
+	}
+	if st.EditorFontSize < 9 || st.EditorFontSize > 32 {
+		st.EditorFontSize = 12
+	}
+	if st.DefaultRowLimit < 0 {
+		st.DefaultRowLimit = 100
 	}
 	return st
 }

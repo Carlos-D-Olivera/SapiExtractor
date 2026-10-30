@@ -7,6 +7,7 @@ import clsx from 'clsx'
 import ConnectionDialog from './components/ConnectionDialog'
 import RestoreSessionModal from './components/RestoreSessionModal'
 import UpdateModal from './components/UpdateModal'
+import SettingsModal from './components/SettingsModal'
 import WorkspaceView, { DB_LABELS } from './components/WorkspaceView'
 import appIcon from './assets/SpExtractor.ico'
 
@@ -30,7 +31,19 @@ export default function App() {
   const [savedConns, setSavedConns] = useState([])
   const [dialogInitial, setDialogInitial] = useState(null)   // prefill for the connection dialog (reconnect)
   const [dirtyWorkspaces, setDirtyWorkspaces] = useState({})
+  useEffect(() => {
+    const handleSettingsShortcut = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === ',') {
+        e.preventDefault()
+        setShowSettings(prev => !prev)
+      }
+    }
+    window.addEventListener('keydown', handleSettingsShortcut)
+    return () => window.removeEventListener('keydown', handleSettingsShortcut)
+  }, [])
+
   const [confirmCloseWs, setConfirmCloseWs] = useState(null)
+  const [showSettings, setShowSettings] = useState(false)
 
   const handleDirtyChange = useCallback((wsId, isDirty) => {
     setDirtyWorkspaces(prev => {
@@ -466,6 +479,7 @@ export default function App() {
             pendingConn={ws.pendingConn}
             onOpenConnDialog={openConnDialog}
             onDirtyChange={handleDirtyChange}
+            onOpenSettings={() => setShowSettings(true)}
           />
         ))}
       </div>
@@ -480,6 +494,15 @@ export default function App() {
           onClose={() => setShowConnDialog(false)}
           savedConnections={savedConns}
           onDeleteConnection={handleDeleteSaved}
+        />
+      )}
+
+      
+      {/* Settings Modal */}
+      {showSettings && (
+        <SettingsModal
+          activeWorkspace={activeWs}
+          onClose={() => setShowSettings(false)}
         />
       )}
 
