@@ -76,6 +76,14 @@ export function PickDirectory():Promise<string>;
 
 export function PrepareProcedureDebug(arg1:string,arg2:string,arg3:string):Promise<debug.Prefill>;
 
+export function ResetQueryState(arg1:string):Promise<void>;
+
+export function ResetQueryStateForDb(arg1:string,arg2:string,arg3:string,arg4:string):Promise<void>;
+
+export function ResetSessionQueryStates():Promise<void>;
+
+export function ResetWorkspaceQueryState(arg1:string):Promise<void>;
+
 export function SaveAutoCompletes(arg1:Array<config.AutoCompleteItem>):Promise<void>;
 
 export function SaveConnection(arg1:config.SavedConnection):Promise<void>;

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import {
+  Settings,
   Database, RefreshCw, Download,
   Table2, Columns, FunctionSquare, Zap, Eye, Loader2,
   AlertCircle, FolderOpen, Plug, Terminal, Activity
@@ -58,6 +59,7 @@ export default function WorkspaceView({
   pendingConn,
   onOpenConnDialog,
   onDirtyChange,
+  onOpenSettings,
 }) {
   const [objType, setObjType] = useState('STORED_PROCEDURE')
   const [objects, setObjects] = useState([])
@@ -71,6 +73,30 @@ export default function WorkspaceView({
   const [objError, setObjError] = useState('')
   const [selected, setSelected] = useState(new Set())
   const [outDir, setOutDir] = useState('')
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const api = await go()
+        const st = await api.GetPersistenceSettings()
+        if (!cancelled && st?.defaultOutDir) {
+          setOutDir(prev => prev || st.defaultOutDir)
+        }
+      } catch { /* ignore */ }
+    })()
+
+    const handleSettingsUpdate = (e) => {
+      if (e.detail?.defaultOutDir) {
+        setOutDir(prev => prev || e.detail.defaultOutDir)
+      }
+    }
+    window.addEventListener('spextractor:settings-updated', handleSettingsUpdate)
+    return () => {
+      cancelled = true
+      window.removeEventListener('spextractor:settings-updated', handleSettingsUpdate)
+    }
+  }, [])
+
   const [exportProgress, setExportProgress] = useState(null)
   const [exporting, setExporting] = useState(false)
 
@@ -585,6 +611,18 @@ export default function WorkspaceView({
             )}
           </>
         )}
+        {/* Inferior izquierdo: Botón Configuración */}
+        <div className="mt-auto pt-2 border-t border-surface-700/60 flex flex-col gap-1">
+          <button
+            type="button"
+            onClick={onOpenSettings}
+            className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-all text-left text-slate-400 hover:text-white hover:bg-surface-700/50 group"
+            title="Configuración de la aplicación"
+          >
+            <Settings className="w-4 h-4 flex-shrink-0 text-slate-400 group-hover:text-brand-light transition-colors" />
+            <span className="truncate">Configuración</span>
+          </button>
+        </div>
       </aside>
 
       {/* Content area: every view lives here */}

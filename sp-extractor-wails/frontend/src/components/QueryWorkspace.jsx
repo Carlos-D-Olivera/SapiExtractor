@@ -2,7 +2,7 @@ import { useState, useCallback, useRef, useEffect } from 'react'
 import { Play, Plus, X, Loader2, AlertCircle, Ban, Clock, Table2, Trash2, Sparkles, FileCode2, PanelBottomClose, PanelBottomOpen, Check, History, RotateCcw, Save } from 'lucide-react'
 import clsx from 'clsx'
 import SqlEditor, { getIdentifierAtCursor, stripQuotes } from './SqlEditor'
-import AutocompletesModal, { getStoredAutocompletes, loadStoredAutocompletes, saveStoredAutocompletes } from './AutocompletesModal'
+import { getStoredAutocompletes, loadStoredAutocompletes } from './AutocompletesModal'
 import InsertScriptModal from './InsertScriptModal'
 import StructuredViewerModal from './StructuredViewerModal'
 import QueryHistoryModal, { titleFromSql } from './QueryHistoryModal'
@@ -10,10 +10,19 @@ import TabContextMenu from './TabContextMenu'
 import NewTabContextMenu from './NewTabContextMenu'
 import { detectType } from '../utils/structured'
 
-let tabSeq = 0
-function newTab() {
-  tabSeq += 1
-  return { id: `q${Date.now()}_${tabSeq}`, title: `Consulta ${tabSeq}`, sql: '', lastSql: '', result: null, error: '', running: false, savedPath: null, savedSql: '' }
+function makeTab(seq, overrides = {}) {
+  return {
+    id: `q${Date.now()}_${seq}`,
+    title: `Consulta ${seq}`,
+    sql: '',
+    lastSql: '',
+    result: null,
+    error: '',
+    running: false,
+    savedPath: null,
+    savedSql: '',
+    ...overrides,
+  }
 }
 
 export function isQueryTabDirty(tab) {
@@ -34,6 +43,17 @@ const EXPLICIT_LIMIT = /\b(top\s*\(?\s*\d+|limit\s+\d+|fetch\s+(first|next)\b)/i
 const DEFAULT_FONT_SIZE = 12
 const MIN_FONT_SIZE = 9
 const MAX_FONT_SIZE = 32
+
+function getStoredRowLimit() {
+  try {
+    const v = localStorage.getItem('sp_extractor_default_row_limit')
+    if (v !== null) {
+      const n = Number(v)
+      if (Number.isFinite(n) && n >= 0) return n
+    }
+  } catch { /* ignore */ }
+  return DEFAULT_ROW_LIMIT
+}
 
 function getStoredFontSize() {
   try {
@@ -77,13 +97,19 @@ export default function QueryWorkspace({
   onOpenTableScripts,
   onDirtyChange,
 }) {
-  const [tabs, setTabs] = useState(() => [newTab()])
+  const tabSeqRef = useRef(1)
+  const createTab = useCallback((overrides = {}) => {
+    tabSeqRef.current += 1
+    return makeTab(tabSeqRef.current, overrides)
+  }, [])
+
+  const [tabs, setTabs] = useState(() => [makeTab(1)])
   const [activeId, setActiveId] = useState(() => tabs[0].id)
   const tabsRef = useRef(tabs)
   tabsRef.current = tabs
   const [insertTarget, setInsertTarget] = useState(null)
   const [viewer, setViewer] = useState(null) // JSON / XML cell open in the viewer
-  const [maxRows, setMaxRows] = useState(DEFAULT_ROW_LIMIT)
+  const [maxRows, setMaxRows] = useState(() => getStoredRowLimit())
   const [showResults, setShowResults] = useState(true)
 
   const toggleResults = useCallback(() => {
@@ -97,7 +123,7 @@ export default function QueryWorkspace({
   const editorRef = useRef(null)
   const lastNonce = useRef(incomingSql?.nonce)
   const [autocompletes, setAutocompletes] = useState(() => getStoredAutocompletes())
-  const [showAutocompletesModal, setShowAutocompletesModal] = useState(false)
+
   const [closedTabs, setClosedTabs] = useState([])      // recently closed tabs of this database
   const [showClosed, setShowClosed] = useState(false)
   const [showHistory, setShowHistory] = useState(false)
@@ -217,9 +243,21 @@ export default function QueryWorkspace({
       }
     }
     window.addEventListener('spextractor:autocompletes-updated', handleUpdate)
+    const handleSettingsUpdated = (e) => {
+      if (e.detail) {
+        if (e.detail.editorFontSize) {
+          setFontSize(e.detail.editorFontSize)
+        }
+        if (e.detail.defaultRowLimit !== undefined) {
+          setMaxRows(e.detail.defaultRowLimit)
+        }
+      }
+    }
+    window.addEventListener('spextractor:settings-updated', handleSettingsUpdated)
     return () => {
       mounted = false
       window.removeEventListener('spextractor:autocompletes-updated', handleUpdate)
+      window.removeEventListener('spextractor:settings-updated', handleSettingsUpdated)
     }
   }, [])
 
@@ -241,13 +279,16 @@ export default function QueryWorkspace({
   useEffect(() => {
     if (!incomingSql || incomingSql.nonce === lastNonce.current) return
     lastNonce.current = incomingSql.nonce
-    const t = { ...newTab(), sql: incomingSql.text, savedSql: '' }
-    if (incomingSql.title) t.title = incomingSql.title
+    const t = createTab({
+      sql: incomingSql.text,
+      savedSql: '',
+      ...(incomingSql.title ? { title: incomingSql.title } : {}),
+    })
     setTabs(prev => [...prev, t])
     setActiveId(t.id)
-  }, [incomingSql])
+  }, [incomingSql, createTab])
 
-  // Tabs are kept per database: restore the ones saved last time.
+  // Tabs are kept per workspace database: restore the ones saved last time.
   useEffect(() => {
     let cancelled = false
     ;(async () => {
@@ -255,8 +296,7 @@ export default function QueryWorkspace({
         const st = await (await go()).LoadQueryState(workspaceId)
         if (cancelled) return
         if (st?.tabs?.length) {
-          const restored = st.tabs.map(t => ({
-            ...newTab(),
+          const restored = st.tabs.map(t => makeTab(1, {
             id: t.id,
             title: t.title || 'Consulta',
             sql: t.sql || '',
@@ -266,7 +306,7 @@ export default function QueryWorkspace({
           }))
           restored.forEach(t => {
             const n = /^Consulta (\d+)$/.exec(t.title)
-            if (n) tabSeq = Math.max(tabSeq, Number(n[1]))
+            if (n) tabSeqRef.current = Math.max(tabSeqRef.current, Number(n[1]))
           })
           setTabs(restored)
           setActiveId(restored.some(t => t.id === st.activeId) ? st.activeId : restored[0].id)
@@ -325,7 +365,7 @@ export default function QueryWorkspace({
   }, [])
 
   const addTab = () => {
-    const t = newTab()
+    const t = createTab()
     setTabs(prev => [...prev, t])
     setActiveId(t.id)
   }
@@ -342,7 +382,8 @@ export default function QueryWorkspace({
       ].slice(0, 50))
     }
     if (tabs.length === 1) {
-      const fresh = newTab()
+      tabSeqRef.current = 1
+      const fresh = makeTab(1)
       setTabs([fresh])
       setActiveId(fresh.id)
       return
@@ -395,7 +436,7 @@ export default function QueryWorkspace({
   }, [tabToClose])
 
   const reopenClosed = (c) => {
-    const t = { ...newTab(), title: c.title, sql: c.sql, savedPath: c.savedPath || null, savedSql: c.sql }
+    const t = createTab({ title: c.title, sql: c.sql, savedPath: c.savedPath || null, savedSql: c.sql })
     setTabs(prev => [...prev, t])
     setActiveId(t.id)
     setClosedTabs(prev => prev.filter(x => x.id !== c.id))
@@ -446,14 +487,13 @@ export default function QueryWorkspace({
       const api = await go()
       const res = await api.OpenSqlFile()
       if (!res || !res.path) return
-      const t = {
-        ...newTab(),
+      const t = createTab({
         title: res.name || 'Consulta',
         sql: res.content || '',
         lastSql: res.content || '',
         savedPath: res.path,
         savedSql: res.content || '',
-      }
+      })
       setTabs(prev => [...prev, t])
       setActiveId(t.id)
       setCopyToast(`Abierto: ${res.name}.sql`)
@@ -461,7 +501,7 @@ export default function QueryWorkspace({
     } catch (e) {
       console.error('Error opening SQL file:', e)
     }
-  }, [])
+  }, [createTab])
 
   const handleOpenSqlFileRef = useRef(handleOpenSqlFile)
   handleOpenSqlFileRef.current = handleOpenSqlFile
@@ -569,7 +609,7 @@ export default function QueryWorkspace({
   const [copyToast, setCopyToast] = useState('')
 
   const openQueryInNewTab = useCallback((sqlText, tabTitle, autoRun = false) => {
-    const t = { ...newTab(), sql: sqlText, title: tabTitle || 'Consulta', savedSql: '' }
+    const t = createTab({ sql: sqlText, title: tabTitle || 'Consulta', savedSql: '' })
     setTabs(prev => [...prev, t])
     setActiveId(t.id)
     if (autoRun) {
@@ -577,7 +617,7 @@ export default function QueryWorkspace({
         runQueryRef.current?.(t, sqlText)
       }, 60)
     }
-  }, [])
+  }, [createTab])
 
   const handleSelectTop100 = useCallback((target) => {
     if (!target) return
@@ -772,17 +812,6 @@ export default function QueryWorkspace({
               Limpiar
             </button>
             <button
-              onClick={() => setShowAutocompletesModal(true)}
-              className="btn-secondary text-xs py-1.5 px-3 flex items-center gap-1.5"
-              title="Configurar códigos de autocompletado rápido con TAB"
-            >
-              <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-              AutoCompletes
-              <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-amber-400/20 text-amber-300 font-mono font-bold">
-                {autocompletes.length}
-              </span>
-            </button>
-            <button
               onClick={() => setShowHistory(true)}
               className="btn-secondary text-xs py-1.5 px-3 flex items-center gap-1.5"
               title="Historial de consultas ejecutadas en esta base de datos"
@@ -923,14 +952,7 @@ export default function QueryWorkspace({
         </>
       )}
 
-      {/* AutoCompletes Modal */}
-      {showAutocompletesModal && (
-        <AutocompletesModal
-          autocompletes={autocompletes}
-          onSave={handleSaveAutocompletes}
-          onClose={() => setShowAutocompletesModal(false)}
-        />
-      )}
+      
 
       {/* INSERT script generator */}
       {insertTarget && (

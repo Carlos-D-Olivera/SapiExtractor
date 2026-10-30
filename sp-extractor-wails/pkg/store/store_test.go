@@ -29,6 +29,15 @@ func TestKey(t *testing.T) {
 	if k := Key(db.SQLServer, "h", "", ""); !strings.HasPrefix(k, "db_") {
 		t.Errorf("empty database name: %q", k)
 	}
+
+	w1 := WorkspaceKey("1", db.SQLServer, "SRV\\SQL2022", "1433", "Ventas")
+	w2 := WorkspaceKey("2", db.SQLServer, "SRV\\SQL2022", "1433", "Ventas")
+	if w1 == w2 {
+		t.Error("different workspace IDs must produce different keys")
+	}
+	if !strings.HasPrefix(w1, "ws1_") || !strings.HasPrefix(w2, "ws2_") {
+		t.Errorf("expected ws prefix, got: %s, %s", w1, w2)
+	}
 }
 
 func TestStateRoundTripAndLimits(t *testing.T) {
@@ -65,6 +74,37 @@ func TestStateRoundTripAndLimits(t *testing.T) {
 	}
 	if got.UpdatedAt == 0 {
 		t.Error("UpdatedAt not set")
+	}
+
+	if err := s.ResetState("k"); err != nil {
+		t.Fatalf("reset state: %v", err)
+	}
+	afterReset, err := s.LoadState("k")
+	if err != nil {
+		t.Fatalf("load state after reset: %v", err)
+	}
+	if len(afterReset.Tabs) != 0 || len(afterReset.Closed) != 0 {
+		t.Errorf("state after reset should be empty, got %+v", afterReset)
+	}
+}
+
+func TestResetWorkspaceStates(t *testing.T) {
+	s := newStore(t)
+	k1 := WorkspaceKey("1", db.SQLServer, "srv", "1433", "db")
+	k2 := WorkspaceKey("2", db.SQLServer, "srv", "1433", "db")
+	_ = s.SaveState(k1, QueryState{Tabs: []Tab{{ID: "1", Title: "T1"}}})
+	_ = s.SaveState(k2, QueryState{Tabs: []Tab{{ID: "2", Title: "T2"}}})
+
+	if err := s.ResetWorkspaceStates("2"); err != nil {
+		t.Fatalf("reset workspace states: %v", err)
+	}
+	st1, _ := s.LoadState(k1)
+	st2, _ := s.LoadState(k2)
+	if len(st1.Tabs) != 1 {
+		t.Errorf("workspace 1 state must remain intact, got %d", len(st1.Tabs))
+	}
+	if len(st2.Tabs) != 0 {
+		t.Errorf("workspace 2 state must be cleared, got %d", len(st2.Tabs))
 	}
 }
 
