@@ -10,10 +10,19 @@ import TabContextMenu from './TabContextMenu'
 import NewTabContextMenu from './NewTabContextMenu'
 import { detectType } from '../utils/structured'
 
-let tabSeq = 0
-function newTab() {
-  tabSeq += 1
-  return { id: `q${Date.now()}_${tabSeq}`, title: `Consulta ${tabSeq}`, sql: '', lastSql: '', result: null, error: '', running: false, savedPath: null, savedSql: '' }
+function makeTab(seq, overrides = {}) {
+  return {
+    id: `q${Date.now()}_${seq}`,
+    title: `Consulta ${seq}`,
+    sql: '',
+    lastSql: '',
+    result: null,
+    error: '',
+    running: false,
+    savedPath: null,
+    savedSql: '',
+    ...overrides,
+  }
 }
 
 export function isQueryTabDirty(tab) {
@@ -88,7 +97,13 @@ export default function QueryWorkspace({
   onOpenTableScripts,
   onDirtyChange,
 }) {
-  const [tabs, setTabs] = useState(() => [newTab()])
+  const tabSeqRef = useRef(1)
+  const createTab = useCallback((overrides = {}) => {
+    tabSeqRef.current += 1
+    return makeTab(tabSeqRef.current, overrides)
+  }, [])
+
+  const [tabs, setTabs] = useState(() => [makeTab(1)])
   const [activeId, setActiveId] = useState(() => tabs[0].id)
   const tabsRef = useRef(tabs)
   tabsRef.current = tabs
@@ -264,13 +279,16 @@ export default function QueryWorkspace({
   useEffect(() => {
     if (!incomingSql || incomingSql.nonce === lastNonce.current) return
     lastNonce.current = incomingSql.nonce
-    const t = { ...newTab(), sql: incomingSql.text, savedSql: '' }
-    if (incomingSql.title) t.title = incomingSql.title
+    const t = createTab({
+      sql: incomingSql.text,
+      savedSql: '',
+      ...(incomingSql.title ? { title: incomingSql.title } : {}),
+    })
     setTabs(prev => [...prev, t])
     setActiveId(t.id)
-  }, [incomingSql])
+  }, [incomingSql, createTab])
 
-  // Tabs are kept per database: restore the ones saved last time.
+  // Tabs are kept per workspace database: restore the ones saved last time.
   useEffect(() => {
     let cancelled = false
     ;(async () => {
@@ -278,8 +296,7 @@ export default function QueryWorkspace({
         const st = await (await go()).LoadQueryState(workspaceId)
         if (cancelled) return
         if (st?.tabs?.length) {
-          const restored = st.tabs.map(t => ({
-            ...newTab(),
+          const restored = st.tabs.map(t => makeTab(1, {
             id: t.id,
             title: t.title || 'Consulta',
             sql: t.sql || '',
@@ -289,7 +306,7 @@ export default function QueryWorkspace({
           }))
           restored.forEach(t => {
             const n = /^Consulta (\d+)$/.exec(t.title)
-            if (n) tabSeq = Math.max(tabSeq, Number(n[1]))
+            if (n) tabSeqRef.current = Math.max(tabSeqRef.current, Number(n[1]))
           })
           setTabs(restored)
           setActiveId(restored.some(t => t.id === st.activeId) ? st.activeId : restored[0].id)
@@ -348,7 +365,7 @@ export default function QueryWorkspace({
   }, [])
 
   const addTab = () => {
-    const t = newTab()
+    const t = createTab()
     setTabs(prev => [...prev, t])
     setActiveId(t.id)
   }
@@ -365,7 +382,8 @@ export default function QueryWorkspace({
       ].slice(0, 50))
     }
     if (tabs.length === 1) {
-      const fresh = newTab()
+      tabSeqRef.current = 1
+      const fresh = makeTab(1)
       setTabs([fresh])
       setActiveId(fresh.id)
       return
@@ -418,7 +436,7 @@ export default function QueryWorkspace({
   }, [tabToClose])
 
   const reopenClosed = (c) => {
-    const t = { ...newTab(), title: c.title, sql: c.sql, savedPath: c.savedPath || null, savedSql: c.sql }
+    const t = createTab({ title: c.title, sql: c.sql, savedPath: c.savedPath || null, savedSql: c.sql })
     setTabs(prev => [...prev, t])
     setActiveId(t.id)
     setClosedTabs(prev => prev.filter(x => x.id !== c.id))
@@ -469,14 +487,13 @@ export default function QueryWorkspace({
       const api = await go()
       const res = await api.OpenSqlFile()
       if (!res || !res.path) return
-      const t = {
-        ...newTab(),
+      const t = createTab({
         title: res.name || 'Consulta',
         sql: res.content || '',
         lastSql: res.content || '',
         savedPath: res.path,
         savedSql: res.content || '',
-      }
+      })
       setTabs(prev => [...prev, t])
       setActiveId(t.id)
       setCopyToast(`Abierto: ${res.name}.sql`)
@@ -484,7 +501,7 @@ export default function QueryWorkspace({
     } catch (e) {
       console.error('Error opening SQL file:', e)
     }
-  }, [])
+  }, [createTab])
 
   const handleOpenSqlFileRef = useRef(handleOpenSqlFile)
   handleOpenSqlFileRef.current = handleOpenSqlFile
@@ -592,7 +609,7 @@ export default function QueryWorkspace({
   const [copyToast, setCopyToast] = useState('')
 
   const openQueryInNewTab = useCallback((sqlText, tabTitle, autoRun = false) => {
-    const t = { ...newTab(), sql: sqlText, title: tabTitle || 'Consulta', savedSql: '' }
+    const t = createTab({ sql: sqlText, title: tabTitle || 'Consulta', savedSql: '' })
     setTabs(prev => [...prev, t])
     setActiveId(t.id)
     if (autoRun) {
@@ -600,7 +617,7 @@ export default function QueryWorkspace({
         runQueryRef.current?.(t, sqlText)
       }, 60)
     }
-  }, [])
+  }, [createTab])
 
   const handleSelectTop100 = useCallback((target) => {
     if (!target) return

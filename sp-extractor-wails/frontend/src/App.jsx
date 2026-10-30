@@ -179,9 +179,23 @@ export default function App() {
     }
   }
 
-  const handleSkipRestore = () => {
-    setRestorePrompt(null)
-    setSessionReady(true)
+  const handleSkipRestore = async () => {
+    setRestoring(true)
+    try {
+      const api = await go()
+      if (restorePrompt?.workspaces) {
+        for (const w of restorePrompt.workspaces) {
+          if (w.dbType && w.dbName) {
+            await api.ResetQueryStateForDb(w.dbType, w.host || '', w.port || '', w.dbName)
+          }
+        }
+      }
+      await api.ResetSessionQueryStates()
+    } catch { /* ignore */ } finally {
+      setRestoring(false)
+      setRestorePrompt(null)
+      setSessionReady(true)
+    }
   }
 
   // Remember the layout (never the passwords) so it can be restored next time.
@@ -241,11 +255,16 @@ export default function App() {
   }, [showConnDialog])
 
   // Add a new workspace up to a max of 5
-  const handleAddWorkspace = () => {
+  const handleAddWorkspace = async () => {
     if (workspaces.length >= 5) return
     const existingIds = new Set(workspaces.map(w => w.id))
     const available = ['1', '2', '3', '4', '5'].find(id => !existingIds.has(id))
     if (!available) return
+
+    try {
+      const api = await go()
+      await api.ResetWorkspaceQueryState(available)
+    } catch { /* ignore */ }
 
     const newWs = { id: available, connInfo: null, view: 'objects' }
     const updated = [...workspaces, newWs].sort((a, b) => Number(a.id) - Number(b.id))
@@ -274,6 +293,11 @@ export default function App() {
         await api.Disconnect(idToClose)
       } catch { /* ignore */ }
     }
+
+    try {
+      const api = await go()
+      await api.ResetWorkspaceQueryState(idToClose)
+    } catch { /* ignore */ }
 
     setDirtyWorkspaces(prev => {
       const next = { ...prev }

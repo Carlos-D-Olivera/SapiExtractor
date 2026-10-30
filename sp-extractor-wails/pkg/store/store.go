@@ -88,6 +88,17 @@ func Key(t db.DatabaseType, host, port, dbName string) string {
 	return label + "_" + hex.EncodeToString(sum[:])[:10]
 }
 
+// WorkspaceKey identifies a database query state for a specific workspace:
+// e.g. "ws1_ventas_abc123"
+func WorkspaceKey(wsID string, t db.DatabaseType, host, port, dbName string) string {
+	ws := strings.TrimSpace(wsID)
+	if ws == "" {
+		ws = "1"
+	}
+	base := Key(t, host, port, dbName)
+	return fmt.Sprintf("ws%s_%s", ws, base)
+}
+
 func (s *Store) dbDir(key string) string { return filepath.Join(s.dir, "workspaces", key) }
 
 // --------------------------------------------------------------------- files
@@ -187,6 +198,46 @@ func (s *Store) SaveState(key string, st QueryState) error {
 	}
 	st.UpdatedAt = time.Now().UnixMilli()
 	return writeJSON(filepath.Join(s.dbDir(key), "state.json"), st)
+}
+
+// ResetState removes the saved query tabs (state.json) for a database key.
+func (s *Store) ResetState(key string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	path := filepath.Join(s.dbDir(key), "state.json")
+	_ = os.Remove(path + ".tmp")
+	err := os.Remove(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	return err
+}
+
+// ResetWorkspaceStates removes state.json for all databases under a specific workspace ID.
+func (s *Store) ResetWorkspaceStates(wsID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ws := strings.TrimSpace(wsID)
+	if ws == "" {
+		ws = "1"
+	}
+	prefix := fmt.Sprintf("ws%s_", ws)
+	workspacesDir := filepath.Join(s.dir, "workspaces")
+	entries, err := os.ReadDir(workspacesDir)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+	for _, e := range entries {
+		if e.IsDir() && strings.HasPrefix(e.Name(), prefix) {
+			path := filepath.Join(workspacesDir, e.Name(), "state.json")
+			_ = os.Remove(path + ".tmp")
+			_ = os.Remove(path)
+		}
+	}
+	return nil
 }
 
 // -------------------------------------------------------------------- history
