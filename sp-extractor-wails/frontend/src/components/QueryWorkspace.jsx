@@ -464,23 +464,33 @@ export default function QueryWorkspace({
         addTabRef.current?.()
       } else if ((e.ctrlKey || e.metaKey) && !e.shiftKey && (e.key === 'r' || e.key === 'R')) {
         e.preventDefault()
-        toggleResultsRef.current?.()
+        if (!wasHandledByEditor) {
+          toggleResultsRef.current?.()
+        }
       } else if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 't' || e.key === 'T')) {
         e.preventDefault()
-        const target = getTargetIdentifier()
-        if (target) handleSelectTop100(target)
+        if (!wasHandledByEditor) {
+          const target = getTargetIdentifier()
+          if (target) handleSelectTop100(target)
+        }
       } else if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'r' || e.key === 'R')) {
         e.preventDefault()
-        const target = getTargetIdentifier()
-        if (target) onOpenTableRelationsRef.current?.(target)
+        if (!wasHandledByEditor) {
+          const target = getTargetIdentifier()
+          if (target) onOpenTableRelationsRef.current?.(target)
+        }
       } else if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'c' || e.key === 'C')) {
         e.preventDefault()
-        const target = getTargetIdentifier()
-        if (target) handleCopyName(target)
+        if (!wasHandledByEditor) {
+          const target = getTargetIdentifier()
+          if (target) handleCopyName(target)
+        }
       } else if (e.altKey && (e.key === 'F1' || e.code === 'F1')) {
         e.preventDefault()
-        const target = getTargetIdentifier()
-        if (target) onOpenTableDefinitionRef.current?.(target)
+        if (!wasHandledByEditor) {
+          const target = getTargetIdentifier()
+          if (target) onOpenTableDefinitionRef.current?.(target)
+        }
       }
     }
 
