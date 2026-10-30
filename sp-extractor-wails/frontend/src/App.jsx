@@ -504,6 +504,13 @@ export default function App() {
             onOpenConnDialog={openConnDialog}
             onDirtyChange={handleDirtyChange}
             onOpenSettings={() => setShowSettings(true)}
+            otherWorkspaces={workspaces
+              .filter(o => o.id !== ws.id && o.connInfo)
+              .map(o => ({
+                id: o.id,
+                dbType: o.connInfo.dbType,
+                label: `${o.connInfo.dbName} @ ${o.connInfo.host} (espacio ${o.id})`,
+              }))}
           />
         ))}
       </div>

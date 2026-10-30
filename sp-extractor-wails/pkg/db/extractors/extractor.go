@@ -22,6 +22,9 @@ type Extractor interface {
 	TableColumns(conn *sql.DB, schema, table string) ([]db.TableColumn, error)
 	// TableMeta returns the full structural metadata of a table (for script generation).
 	TableMeta(conn *sql.DB, schema, table string) (db.TableMeta, error)
+	// TableMetaWithFKs is TableMeta reusing the database-wide FK list (from ListForeignKeys),
+	// which avoids reloading it for every table when many tables are read.
+	TableMetaWithFKs(conn *sql.DB, schema, table string, allFKs []db.ForeignKey) (db.TableMeta, error)
 }
 
 // New returns the correct Extractor implementation for the given DB type.
