@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
-import { Play, Plus, X, Loader2, AlertCircle, Ban, Clock, Table2, Trash2, Sparkles, FileCode2, PanelBottomClose, PanelBottomOpen, Check, History, RotateCcw, Save } from 'lucide-react'
+import { Play, Plus, X, Loader2, AlertCircle, Ban, Clock, Table2, Trash2, Sparkles, FileCode2, Check, History, RotateCcw, Save } from 'lucide-react'
 import clsx from 'clsx'
 import SqlEditor, { getIdentifierAtCursor, stripQuotes } from './SqlEditor'
 import { getStoredAutocompletes, loadStoredAutocompletes } from './AutocompletesModal'
@@ -701,7 +701,7 @@ export default function QueryWorkspace({
         handleSaveRef.current?.(activeRef.current)
       } else if ((e.ctrlKey || e.metaKey) && !e.shiftKey && (e.key === 'r' || e.key === 'R')) {
         e.preventDefault()
-        if (!wasHandledByEditor) {
+        if (!editorRef.current?.hasFocus) {
           toggleResultsRef.current?.()
         }
       } else if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 't' || e.key === 'T')) {
@@ -852,18 +852,6 @@ export default function QueryWorkspace({
                 </>
               )}
             </div>
-            <button
-              onClick={toggleResults}
-              className={clsx(
-                'btn-secondary text-xs py-1.5 px-3 flex items-center gap-1.5',
-                !showResults && 'bg-brand-primary/20 text-brand-light border-brand-primary/40'
-              )}
-              title={showResults ? 'Ocultar panel de resultados (Ctrl+R)' : 'Mostrar panel de resultados (Ctrl+R)'}
-            >
-              {showResults ? <PanelBottomClose className="w-3.5 h-3.5" /> : <PanelBottomOpen className="w-3.5 h-3.5" />}
-              {showResults ? 'Resultados' : 'Ver resultados'}
-            </button>
-
             {/* Zoom text control */}
             <div
               className="flex items-center gap-1 px-1.5 py-0.5 rounded-lg bg-surface-800/80 border border-surface-600/70 text-slate-400 select-none"
