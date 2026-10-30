@@ -955,6 +955,10 @@ export namespace store {
 	    autoRestore: boolean;
 	    checkUpdates: boolean;
 	    skippedVersion: string;
+	    defaultRowLimit: number;
+	    editorFontSize: number;
+	    defaultOutDir: string;
+	    includeDropHeader: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new Settings(source);
@@ -968,6 +972,10 @@ export namespace store {
 	        this.autoRestore = source["autoRestore"];
 	        this.checkUpdates = source["checkUpdates"];
 	        this.skippedVersion = source["skippedVersion"];
+	        this.defaultRowLimit = source["defaultRowLimit"];
+	        this.editorFontSize = source["editorFontSize"];
+	        this.defaultOutDir = source["defaultOutDir"];
+	        this.includeDropHeader = source["includeDropHeader"];
 	    }
 	}
 

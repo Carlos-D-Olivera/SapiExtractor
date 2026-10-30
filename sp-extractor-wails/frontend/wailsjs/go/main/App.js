@@ -138,6 +138,22 @@ export function PrepareProcedureDebug(arg1, arg2, arg3) {
   return window['go']['main']['App']['PrepareProcedureDebug'](arg1, arg2, arg3);
 }
 
+export function ResetQueryState(arg1) {
+  return window['go']['main']['App']['ResetQueryState'](arg1);
+}
+
+export function ResetQueryStateForDb(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['ResetQueryStateForDb'](arg1, arg2, arg3, arg4);
+}
+
+export function ResetSessionQueryStates() {
+  return window['go']['main']['App']['ResetSessionQueryStates']();
+}
+
+export function ResetWorkspaceQueryState(arg1) {
+  return window['go']['main']['App']['ResetWorkspaceQueryState'](arg1);
+}
+
 export function SaveAutoCompletes(arg1) {
   return window['go']['main']['App']['SaveAutoCompletes'](arg1);
 }

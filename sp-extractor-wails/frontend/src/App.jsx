@@ -7,6 +7,7 @@ import clsx from 'clsx'
 import ConnectionDialog from './components/ConnectionDialog'
 import RestoreSessionModal from './components/RestoreSessionModal'
 import UpdateModal from './components/UpdateModal'
+import SettingsModal from './components/SettingsModal'
 import WorkspaceView, { DB_LABELS } from './components/WorkspaceView'
 import appIcon from './assets/SpExtractor.ico'
 
@@ -30,7 +31,19 @@ export default function App() {
   const [savedConns, setSavedConns] = useState([])
   const [dialogInitial, setDialogInitial] = useState(null)   // prefill for the connection dialog (reconnect)
   const [dirtyWorkspaces, setDirtyWorkspaces] = useState({})
+  useEffect(() => {
+    const handleSettingsShortcut = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === ',') {
+        e.preventDefault()
+        setShowSettings(prev => !prev)
+      }
+    }
+    window.addEventListener('keydown', handleSettingsShortcut)
+    return () => window.removeEventListener('keydown', handleSettingsShortcut)
+  }, [])
+
   const [confirmCloseWs, setConfirmCloseWs] = useState(null)
+  const [showSettings, setShowSettings] = useState(false)
 
   const handleDirtyChange = useCallback((wsId, isDirty) => {
     setDirtyWorkspaces(prev => {
@@ -166,9 +179,23 @@ export default function App() {
     }
   }
 
-  const handleSkipRestore = () => {
-    setRestorePrompt(null)
-    setSessionReady(true)
+  const handleSkipRestore = async () => {
+    setRestoring(true)
+    try {
+      const api = await go()
+      if (restorePrompt?.workspaces) {
+        for (const w of restorePrompt.workspaces) {
+          if (w.dbType && w.dbName) {
+            await api.ResetQueryStateForDb(w.dbType, w.host || '', w.port || '', w.dbName)
+          }
+        }
+      }
+      await api.ResetSessionQueryStates()
+    } catch { /* ignore */ } finally {
+      setRestoring(false)
+      setRestorePrompt(null)
+      setSessionReady(true)
+    }
   }
 
   // Remember the layout (never the passwords) so it can be restored next time.
@@ -228,11 +255,16 @@ export default function App() {
   }, [showConnDialog])
 
   // Add a new workspace up to a max of 5
-  const handleAddWorkspace = () => {
+  const handleAddWorkspace = async () => {
     if (workspaces.length >= 5) return
     const existingIds = new Set(workspaces.map(w => w.id))
     const available = ['1', '2', '3', '4', '5'].find(id => !existingIds.has(id))
     if (!available) return
+
+    try {
+      const api = await go()
+      await api.ResetWorkspaceQueryState(available)
+    } catch { /* ignore */ }
 
     const newWs = { id: available, connInfo: null, view: 'objects' }
     const updated = [...workspaces, newWs].sort((a, b) => Number(a.id) - Number(b.id))
@@ -261,6 +293,11 @@ export default function App() {
         await api.Disconnect(idToClose)
       } catch { /* ignore */ }
     }
+
+    try {
+      const api = await go()
+      await api.ResetWorkspaceQueryState(idToClose)
+    } catch { /* ignore */ }
 
     setDirtyWorkspaces(prev => {
       const next = { ...prev }
@@ -466,6 +503,7 @@ export default function App() {
             pendingConn={ws.pendingConn}
             onOpenConnDialog={openConnDialog}
             onDirtyChange={handleDirtyChange}
+            onOpenSettings={() => setShowSettings(true)}
           />
         ))}
       </div>
@@ -480,6 +518,15 @@ export default function App() {
           onClose={() => setShowConnDialog(false)}
           savedConnections={savedConns}
           onDeleteConnection={handleDeleteSaved}
+        />
+      )}
+
+      
+      {/* Settings Modal */}
+      {showSettings && (
+        <SettingsModal
+          activeWorkspace={activeWs}
+          onClose={() => setShowSettings(false)}
         />
       )}
 
