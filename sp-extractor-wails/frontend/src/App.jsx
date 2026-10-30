@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import {
-  Plug, PlugZap, ArrowUpCircle
+  Plug, PlugZap, ArrowUpCircle, AlertCircle
 } from 'lucide-react'
 import clsx from 'clsx'
 
@@ -29,6 +29,24 @@ export default function App() {
   const [showConnDialog, setShowConnDialog] = useState(false)
   const [savedConns, setSavedConns] = useState([])
   const [dialogInitial, setDialogInitial] = useState(null)   // prefill for the connection dialog (reconnect)
+  const [dirtyWorkspaces, setDirtyWorkspaces] = useState({})
+  const [confirmCloseWs, setConfirmCloseWs] = useState(null)
+
+  const handleDirtyChange = useCallback((wsId, isDirty) => {
+    setDirtyWorkspaces(prev => {
+      if (prev[wsId] === isDirty) return prev
+      return { ...prev, [wsId]: isDirty }
+    })
+  }, [])
+
+  useEffect(() => {
+    if (!confirmCloseWs) return
+    const handleKey = (e) => {
+      if (e.key === 'Escape') setConfirmCloseWs(null)
+    }
+    window.addEventListener('keydown', handleKey)
+    return () => window.removeEventListener('keydown', handleKey)
+  }, [confirmCloseWs])
   const [sessionReady, setSessionReady] = useState(false)    // the previous session was dealt with; saving may start
   const [restorePrompt, setRestorePrompt] = useState(null)   // saved session waiting for the user's decision
   const [restoring, setRestoring] = useState(false)
@@ -227,12 +245,28 @@ export default function App() {
     if (workspaces.length <= 1) return
 
     const wsToClose = workspaces.find(w => w.id === idToClose)
+    if (dirtyWorkspaces[idToClose]) {
+      setConfirmCloseWs({ ...wsToClose, isDisconnectOnly: false })
+      return
+    }
+
+    await executeCloseWorkspace(idToClose)
+  }
+
+  const executeCloseWorkspace = async (idToClose) => {
+    const wsToClose = workspaces.find(w => w.id === idToClose)
     if (wsToClose?.connInfo) {
       try {
         const api = await go()
         await api.Disconnect(idToClose)
       } catch { /* ignore */ }
     }
+
+    setDirtyWorkspaces(prev => {
+      const next = { ...prev }
+      delete next[idToClose]
+      return next
+    })
 
     const updated = workspaces.filter(w => w.id !== idToClose)
     setWorkspaces(updated)
@@ -269,12 +303,27 @@ export default function App() {
   }
 
   const handleWorkspaceDisconnect = async () => {
+    if (dirtyWorkspaces[activeId]) {
+      setConfirmCloseWs({ ...activeWs, isDisconnectOnly: true })
+      return
+    }
+
+    await executeWorkspaceDisconnect(activeId)
+  }
+
+  const executeWorkspaceDisconnect = async (wsId) => {
     try {
       const api = await go()
-      await api.Disconnect(activeId)
+      await api.Disconnect(wsId)
     } catch { /* ignore */ }
 
-    setWorkspaces(prev => prev.map(w => w.id === activeId ? { ...w, connInfo: null, pendingConn: null, view: 'objects' } : w))
+    setDirtyWorkspaces(prev => {
+      const next = { ...prev }
+      delete next[wsId]
+      return next
+    })
+
+    setWorkspaces(prev => prev.map(w => w.id === wsId ? { ...w, connInfo: null, pendingConn: null, view: 'objects' } : w))
   }
 
   const handleDeleteSaved = async (conn) => {
@@ -416,6 +465,7 @@ export default function App() {
             setView={(newView) => updateWorkspaceView(ws.id, newView)}
             pendingConn={ws.pendingConn}
             onOpenConnDialog={openConnDialog}
+            onDirtyChange={handleDirtyChange}
           />
         ))}
       </div>
@@ -452,6 +502,70 @@ export default function App() {
           onRestore={handleRestore}
           onSkip={handleSkipRestore}
         />
+      )}
+
+      {/* Confirm close / disconnect workspace when there are unsaved changes */}
+      {confirmCloseWs && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-fade-in">
+          <div className="glass rounded-2xl w-[460px] max-w-[95vw] overflow-hidden shadow-2xl shadow-black/60 animate-slide-up border border-surface-600">
+            <div className="flex items-center gap-3 px-6 py-4 border-b border-surface-600">
+              <div className="p-2 rounded-lg bg-amber-500/20 border border-amber-500/30">
+                <AlertCircle className="w-5 h-5 text-amber-400" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <h2 className="text-sm font-semibold text-white">
+                  {confirmCloseWs.isDisconnectOnly ? 'Desconectar espacio de trabajo' : 'Cerrar espacio de trabajo'}
+                </h2>
+                <p className="text-xs text-slate-400 mt-0.5 truncate">
+                  Espacio {confirmCloseWs.id} {confirmCloseWs.connInfo?.dbName ? `· ${confirmCloseWs.connInfo.dbName}` : ''}
+                </p>
+              </div>
+            </div>
+
+            <div className="px-6 py-4">
+              <p className="text-xs text-slate-300 leading-relaxed">
+                Este espacio de trabajo tiene consultas con cambios sin guardar. Si continúas, los cambios no guardados se perderán.
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 px-6 py-3 border-t border-surface-600 bg-surface-900/40">
+              <button
+                type="button"
+                onClick={() => setConfirmCloseWs(null)}
+                className="btn-secondary text-xs py-1.5 px-3"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const target = confirmCloseWs
+                  setConfirmCloseWs(null)
+                  if (target.isDisconnectOnly) {
+                    executeWorkspaceDisconnect(target.id)
+                  } else {
+                    executeCloseWorkspace(target.id)
+                  }
+                }}
+                className="px-3 py-1.5 rounded-lg text-xs font-medium text-red-400 hover:text-white hover:bg-red-500/20 border border-red-500/30 transition-colors"
+              >
+                {confirmCloseWs.isDisconnectOnly ? 'Desconectar sin guardar' : 'Cerrar sin guardar'}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const targetId = confirmCloseWs.id
+                  setConfirmCloseWs(null)
+                  setActiveId(targetId)
+                  updateWorkspaceView(targetId, 'query')
+                }}
+                className="btn-primary text-xs py-1.5 px-3"
+              >
+                Revisar consultas
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

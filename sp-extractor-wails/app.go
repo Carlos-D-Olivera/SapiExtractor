@@ -637,6 +637,43 @@ func (a *App) GenerateInsertScript(wsID string, req InsertScriptRequest) (string
 		})
 }
 
+
+// WriteFile writes text to an already-known path (used by "Save" to overwrite
+// a previously saved query without opening a dialog again).
+func (a *App) WriteFile(path, text string) error {
+	if path == "" {
+		return fmt.Errorf("ruta vacia")
+	}
+	return os.WriteFile(path, []byte(text), 0644)
+}
+
+// OpenSqlFile opens a native file dialog to choose a .sql file, reads it,
+// and returns its path, name and text content.
+func (a *App) OpenSqlFile() (map[string]string, error) {
+	path, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
+		Title: "Abrir archivo SQL",
+		Filters: []runtime.FileFilter{
+			{DisplayName: "SQL (*.sql)", Pattern: "*.sql"},
+			{DisplayName: "Todos los archivos (*.*)", Pattern: "*.*"},
+		},
+	})
+	if err != nil || path == "" {
+		return nil, err
+	}
+	bytes, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("no se pudo leer el archivo %s: %w", path, err)
+	}
+	content := strings.TrimPrefix(string(bytes), "\ufeff")
+	base := filepath.Base(path)
+	name := strings.TrimSuffix(base, filepath.Ext(base))
+	return map[string]string{
+		"path":    path,
+		"name":    name,
+		"content": content,
+	}, nil
+}
+
 // SaveScript opens a native save dialog and writes text to the chosen .sql file.
 func (a *App) SaveScript(defaultName, text string) (string, error) {
 	path, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{

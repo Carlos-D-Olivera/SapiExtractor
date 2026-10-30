@@ -837,6 +837,7 @@ export namespace store {
 	    id: string;
 	    title: string;
 	    sql: string;
+	    savedPath?: string;
 	    closedAt?: number;
 	
 	    static createFrom(source: any = {}) {
@@ -848,6 +849,7 @@ export namespace store {
 	        this.id = source["id"];
 	        this.title = source["title"];
 	        this.sql = source["sql"];
+	        this.savedPath = source["savedPath"];
 	        this.closedAt = source["closedAt"];
 	    }
 	}
