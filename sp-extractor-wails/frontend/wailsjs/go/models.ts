@@ -976,6 +976,10 @@ export namespace trace {
 	export class Options {
 	    minDurationMs: number;
 	    includeOwn: boolean;
+	    login: string;
+	    host: string;
+	    hostPid: number;
+	    app: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new Options(source);
@@ -985,6 +989,10 @@ export namespace trace {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.minDurationMs = source["minDurationMs"];
 	        this.includeOwn = source["includeOwn"];
+	        this.login = source["login"];
+	        this.host = source["host"];
+	        this.hostPid = source["hostPid"];
+	        this.app = source["app"];
 	    }
 	}
 
