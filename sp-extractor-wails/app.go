@@ -33,6 +33,8 @@ type WorkspaceSession struct {
 	queryCancel    context.CancelFunc
 	traceMu        sync.Mutex
 	trace          *activeTrace
+	compareMu      sync.Mutex
+	compareCancel  context.CancelFunc
 }
 
 // App is the Wails application struct — all exported methods are available to the frontend.

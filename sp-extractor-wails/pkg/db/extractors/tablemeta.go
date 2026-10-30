@@ -28,6 +28,15 @@ func outgoingFKs(all []db.ForeignKey, schema, table string) []db.ForeignKey {
 // ---------------------------------------------------------------- SQL Server
 
 func (e *SqlServerExtractor) TableMeta(conn *sql.DB, schema, table string) (db.TableMeta, error) {
+	return e.tableMeta(conn, schema, table, nil)
+}
+
+// TableMetaWithFKs is TableMeta reusing an already loaded database-wide FK list.
+func (e *SqlServerExtractor) TableMetaWithFKs(conn *sql.DB, schema, table string, allFKs []db.ForeignKey) (db.TableMeta, error) {
+	return e.tableMeta(conn, schema, table, allFKs)
+}
+
+func (e *SqlServerExtractor) tableMeta(conn *sql.DB, schema, table string, allFKs []db.ForeignKey) (db.TableMeta, error) {
 	meta := db.TableMeta{Schema: schema, Name: table}
 
 	colQuery := `SELECT c.name, tp.name, c.max_length, c.precision, c.scale, c.is_nullable, c.is_identity,
@@ -103,9 +112,12 @@ func (e *SqlServerExtractor) TableMeta(conn *sql.DB, schema, table string) (db.T
 		return meta, err
 	}
 
-	fks, err := e.ListForeignKeys(conn)
-	if err != nil {
-		return meta, err
+	fks := allFKs
+	if fks == nil {
+		var err error
+		if fks, err = e.ListForeignKeys(conn); err != nil {
+			return meta, err
+		}
 	}
 	meta.ForeignKeys = outgoingFKs(fks, schema, table)
 	return meta, nil
@@ -114,6 +126,15 @@ func (e *SqlServerExtractor) TableMeta(conn *sql.DB, schema, table string) (db.T
 // ---------------------------------------------------------------- PostgreSQL
 
 func (e *PostgresExtractor) TableMeta(conn *sql.DB, schema, table string) (db.TableMeta, error) {
+	return e.tableMeta(conn, schema, table, nil)
+}
+
+// TableMetaWithFKs is TableMeta reusing an already loaded database-wide FK list.
+func (e *PostgresExtractor) TableMetaWithFKs(conn *sql.DB, schema, table string, allFKs []db.ForeignKey) (db.TableMeta, error) {
+	return e.tableMeta(conn, schema, table, allFKs)
+}
+
+func (e *PostgresExtractor) tableMeta(conn *sql.DB, schema, table string, allFKs []db.ForeignKey) (db.TableMeta, error) {
 	meta := db.TableMeta{Schema: schema, Name: table}
 
 	colQuery := `SELECT a.attname, format_type(a.atttypid, a.atttypmod), NOT a.attnotnull,
@@ -191,9 +212,12 @@ func (e *PostgresExtractor) TableMeta(conn *sql.DB, schema, table string) (db.Ta
 		return meta, err
 	}
 
-	fks, err := e.ListForeignKeys(conn)
-	if err != nil {
-		return meta, err
+	fks := allFKs
+	if fks == nil {
+		var err error
+		if fks, err = e.ListForeignKeys(conn); err != nil {
+			return meta, err
+		}
 	}
 	meta.ForeignKeys = outgoingFKs(fks, schema, table)
 	return meta, nil
@@ -234,6 +258,15 @@ func mysqlDefault(def sql.NullString, extra string) string {
 }
 
 func (e *MySQLExtractor) TableMeta(conn *sql.DB, schema, table string) (db.TableMeta, error) {
+	return e.tableMeta(conn, schema, table, nil)
+}
+
+// TableMetaWithFKs is TableMeta reusing an already loaded database-wide FK list.
+func (e *MySQLExtractor) TableMetaWithFKs(conn *sql.DB, schema, table string, allFKs []db.ForeignKey) (db.TableMeta, error) {
+	return e.tableMeta(conn, schema, table, allFKs)
+}
+
+func (e *MySQLExtractor) tableMeta(conn *sql.DB, schema, table string, allFKs []db.ForeignKey) (db.TableMeta, error) {
 	meta := db.TableMeta{Schema: schema, Name: table}
 
 	colQuery := `SELECT COLUMN_NAME, COLUMN_TYPE, IS_NULLABLE, COLUMN_DEFAULT, EXTRA
@@ -309,9 +342,12 @@ func (e *MySQLExtractor) TableMeta(conn *sql.DB, schema, table string) (db.Table
 		meta.Indexes = kept
 	}
 
-	fks, err := e.ListForeignKeys(conn)
-	if err != nil {
-		return meta, err
+	fks := allFKs
+	if fks == nil {
+		var err error
+		if fks, err = e.ListForeignKeys(conn); err != nil {
+			return meta, err
+		}
 	}
 	meta.ForeignKeys = outgoingFKs(fks, schema, table)
 	return meta, nil
