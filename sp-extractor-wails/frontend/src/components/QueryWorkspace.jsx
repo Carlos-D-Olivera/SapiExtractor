@@ -1147,7 +1147,7 @@ function ResultGrid({ set, index, total, fontSize, onInsertScript, onOpenCell })
   }
 
   return (
-    <div className="flex flex-col min-h-0">
+    <div className="flex flex-col flex-shrink-0">
       <div className="flex items-center gap-2 mb-1">
         {total > 1 && (
           <span className="text-[10px] text-slate-500">Resultado {index + 1} · {rows.length} fila(s)</span>
