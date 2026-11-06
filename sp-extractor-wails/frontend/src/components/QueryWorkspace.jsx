@@ -21,6 +21,7 @@ function makeTab(seq, overrides = {}) {
     running: false,
     savedPath: null,
     savedSql: '',
+    showResults: false,
     ...overrides,
   }
 }
@@ -92,7 +93,7 @@ export default function QueryWorkspace({
   const tabSeqRef = useRef(1)
   const createTab = useCallback((overrides = {}) => {
     tabSeqRef.current += 1
-    return makeTab(tabSeqRef.current, overrides)
+    return makeTab(tabSeqRef.current, { showResults: false, ...overrides })
   }, [])
 
   const [tabs, setTabs] = useState(() => [makeTab(1)])
@@ -102,11 +103,6 @@ export default function QueryWorkspace({
   const [insertTarget, setInsertTarget] = useState(null)
   const [viewer, setViewer] = useState(null) // JSON / XML cell open in the viewer
   const [maxRows, setMaxRows] = useState(() => getStoredRowLimit())
-  const [showResults, setShowResults] = useState(true)
-
-  const toggleResults = useCallback(() => {
-    setShowResults(prev => !prev)
-  }, [])
   const [fontSize, setFontSize] = useState(() => getStoredFontSize())
   const workspaceRef = useRef(null)
   const deltaRef = useRef(0)
@@ -275,6 +271,7 @@ export default function QueryWorkspace({
       sql: incomingSql.text,
       savedSql: '',
       ...(incomingSql.title ? { title: incomingSql.title } : {}),
+      showResults: false,
     })
     setTabs(prev => [...prev, t])
     setActiveId(t.id)
@@ -294,7 +291,8 @@ export default function QueryWorkspace({
             sql: t.sql || '',
             lastSql: t.sql || '',
             savedPath: t.savedPath || t.SavedPath || null,
-            savedSql: t.sql || ''
+            savedSql: t.sql || '',
+            showResults: false,
           }))
           restored.forEach(t => {
             const n = /^Consulta (\d+)$/.exec(t.title)
@@ -351,10 +349,20 @@ export default function QueryWorkspace({
   }, [flushSave])
 
   const active = tabs.find(t => t.id === activeId) || tabs[0]
+  const activeRef = useRef(active)
+  activeRef.current = active
+
+  const showResults = Boolean(active?.showResults)
 
   const patchTab = useCallback((id, patch) => {
     setTabs(prev => prev.map(t => (t.id === id ? { ...t, ...patch } : t)))
   }, [])
+
+  const toggleResults = useCallback(() => {
+    const cur = activeRef.current
+    if (!cur) return
+    patchTab(cur.id, { showResults: !cur.showResults })
+  }, [patchTab])
 
   const addTab = () => {
     const t = createTab()
@@ -440,16 +448,15 @@ export default function QueryWorkspace({
     if (!tab || tab.running) return
     const text = (selection ?? tab.sql)
     if (!text.trim()) return
-    setShowResults(true)
-    patchTab(tab.id, { running: true, error: '', result: null, lastSql: text })
+    patchTab(tab.id, { running: true, error: '', result: null, lastSql: text, showResults: true })
     try {
       const api = await go()
       // A query with its own TOP/LIMIT/FETCH is left alone; everything else gets the cap.
       const cap = EXPLICIT_LIMIT.test(text) ? 0 : maxRows
       const result = await api.ExecuteQuery(workspaceId, text, cap)
-      patchTab(tab.id, { result, running: false })
+      patchTab(tab.id, { result, running: false, showResults: true })
     } catch (e) {
-      patchTab(tab.id, { error: e.toString(), running: false })
+      patchTab(tab.id, { error: e.toString(), running: false, showResults: true })
     }
   }, [workspaceId, patchTab, maxRows])
 
@@ -470,7 +477,7 @@ export default function QueryWorkspace({
   const clearEditor = (tab) => {
     const view = editorRef.current
     if (view) view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: '' } })
-    patchTab(tab.id, { sql: '', lastSql: '', result: null, error: '' })
+    patchTab(tab.id, { sql: '', lastSql: '', result: null, error: '', showResults: false })
   }
 
   // Opens an existing .sql file from disk and loads it into a new tab
@@ -485,6 +492,7 @@ export default function QueryWorkspace({
         lastSql: res.content || '',
         savedPath: res.path,
         savedSql: res.content || '',
+        showResults: false,
       })
       setTabs(prev => [...prev, t])
       setActiveId(t.id)
@@ -577,9 +585,6 @@ export default function QueryWorkspace({
   const handleSaveAsRef = useRef(handleSaveAs)
   handleSaveAsRef.current = handleSaveAs
 
-    const activeRef = useRef(active)
-  activeRef.current = active
-
   const runQueryRef = useRef(runQuery)
   runQueryRef.current = runQuery
 
@@ -601,7 +606,7 @@ export default function QueryWorkspace({
   const [copyToast, setCopyToast] = useState('')
 
   const openQueryInNewTab = useCallback((sqlText, tabTitle, autoRun = false) => {
-    const t = createTab({ sql: sqlText, title: tabTitle || 'Consulta', savedSql: '' })
+    const t = createTab({ sql: sqlText, title: tabTitle || 'Consulta', savedSql: '', showResults: false })
     setTabs(prev => [...prev, t])
     setActiveId(t.id)
     if (autoRun) {
@@ -875,7 +880,7 @@ export default function QueryWorkspace({
             </div>
 
             <div className="flex-1" />
-            <span className="text-[10px] text-slate-600">F5 ejecuta · selección = solo eso</span>
+            <span className="text-[10px] text-slate-600">F5 ejecuta · selección = solo eso · Ctrl+R resultados</span>
           </div>
 
           {/* Editor */}
@@ -883,7 +888,7 @@ export default function QueryWorkspace({
             <div
               className={clsx('rounded-lg overflow-hidden', showResults ? 'resize-y' : 'h-full')}
               style={{
-                ...(showResults ? { height: 176, minHeight: 80 } : {}),
+                ...(showResults ? { height: 176, minHeight: 80 } : { height: '100%' }),
                 border: '1px solid rgba(36,51,80,0.8)',
               }}
             >
