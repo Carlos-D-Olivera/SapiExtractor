@@ -3,7 +3,7 @@ import {
   Settings,
   Database, RefreshCw, Download,
   Table2, Columns, FunctionSquare, Zap, Eye, Loader2,
-  AlertCircle, FolderOpen, Plug, Terminal, Activity, GitCompare
+  AlertCircle, FolderOpen, Plug, Terminal, Activity, GitCompare, ListOrdered
 } from 'lucide-react'
 import clsx from 'clsx'
 
@@ -17,6 +17,7 @@ import ErrorBoundary from './ErrorBoundary'
 import QueryWorkspace from './QueryWorkspace'
 import RelationsPanel from './RelationsPanel'
 import ScriptsPanel from './ScriptsPanel'
+import ScriptRunnerView from './ScriptRunnerView'
 import appIcon from '../assets/SpExtractor.ico'
 
 // ---------- Constants ----------
@@ -617,6 +618,12 @@ export default function WorkspaceView({
               selected={view === 'compare'}
               onClick={() => setView('compare')}
             />
+            <SidebarItem
+              icon={ListOrdered}
+              label="Scripts"
+              selected={view === 'script-runner'}
+              onClick={() => setView('script-runner')}
+            />
           </>
         )}
         {/* Inferior izquierdo: Botón Configuración */}
@@ -678,6 +685,21 @@ export default function WorkspaceView({
               connInfo={connInfo}
               active={isActive && view === 'compare'}
               others={otherWorkspaces}
+            />
+          </ErrorBoundary>
+        </div>
+      )}
+
+      {/* Script Runner view */}
+      {connInfo && (
+        <div className={clsx('flex-1 flex flex-col overflow-hidden', view !== 'script-runner' && 'hidden')}>
+          <ErrorBoundary>
+            <ScriptRunnerView
+              key={connSeq}
+              workspaceId={workspaceId}
+              connInfo={connInfo}
+              active={isActive && view === 'script-runner'}
+              onOpenInQuery={openScriptInQuery}
             />
           </ErrorBoundary>
         </div>

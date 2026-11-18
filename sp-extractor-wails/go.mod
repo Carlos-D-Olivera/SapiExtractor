@@ -44,7 +44,7 @@ require (
 	golang.org/x/net v0.56.0 // indirect
 	golang.org/x/sync v0.21.0 // indirect
 	golang.org/x/sys v0.46.0 // indirect
-	golang.org/x/text v0.39.0 // indirect
+	golang.org/x/text v0.39.0
 )
 
 // replace github.com/wailsapp/wails/v2 v2.16.0 => C:\Users\Usuario\go\pkg\mod

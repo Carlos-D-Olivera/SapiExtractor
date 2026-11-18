@@ -986,6 +986,30 @@ export namespace main {
 		}
 	}
 	
+	export class ScriptFile {
+	    id: string;
+	    path: string;
+	    name: string;
+	    fileName: string;
+	    folder: string;
+	    modTime: number;
+	    size: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new ScriptFile(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.path = source["path"];
+	        this.name = source["name"];
+	        this.fileName = source["fileName"];
+	        this.folder = source["folder"];
+	        this.modTime = source["modTime"];
+	        this.size = source["size"];
+	    }
+	}
 	export class SyncRef {
 	    type: string;
 	    schema: string;

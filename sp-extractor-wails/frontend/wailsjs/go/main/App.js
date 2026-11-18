@@ -66,6 +66,10 @@ export function ExecuteQuery(arg1, arg2, arg3) {
   return window['go']['main']['App']['ExecuteQuery'](arg1, arg2, arg3);
 }
 
+export function ExecuteScriptFile(arg1, arg2, arg3) {
+  return window['go']['main']['App']['ExecuteScriptFile'](arg1, arg2, arg3);
+}
+
 export function ExportObjects(arg1, arg2) {
   return window['go']['main']['App']['ExportObjects'](arg1, arg2);
 }
@@ -142,6 +146,10 @@ export function LoadSession() {
   return window['go']['main']['App']['LoadSession']();
 }
 
+export function OpenMultipleSqlFiles() {
+  return window['go']['main']['App']['OpenMultipleSqlFiles']();
+}
+
 export function OpenObject(arg1, arg2) {
   return window['go']['main']['App']['OpenObject'](arg1, arg2);
 }
@@ -154,8 +162,16 @@ export function PickDirectory() {
   return window['go']['main']['App']['PickDirectory']();
 }
 
+export function PickSqlDirectory() {
+  return window['go']['main']['App']['PickSqlDirectory']();
+}
+
 export function PrepareProcedureDebug(arg1, arg2, arg3) {
   return window['go']['main']['App']['PrepareProcedureDebug'](arg1, arg2, arg3);
+}
+
+export function ReadSqlFile(arg1) {
+  return window['go']['main']['App']['ReadSqlFile'](arg1);
 }
 
 export function ResetQueryState(arg1) {
@@ -200,6 +216,10 @@ export function SaveScript(arg1, arg2) {
 
 export function SaveSession(arg1) {
   return window['go']['main']['App']['SaveSession'](arg1);
+}
+
+export function ScanSqlFolder(arg1) {
+  return window['go']['main']['App']['ScanSqlFolder'](arg1);
 }
 
 export function SearchTables(arg1, arg2, arg3) {

@@ -666,7 +666,7 @@ func (a *App) OpenSqlFile() (map[string]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("no se pudo leer el archivo %s: %w", path, err)
 	}
-	content := strings.TrimPrefix(string(bytes), "\ufeff")
+	content := decodeSqlBytes(bytes)
 	base := filepath.Base(path)
 	name := strings.TrimSuffix(base, filepath.Ext(base))
 	return map[string]string{
