@@ -41,6 +41,8 @@ export function Disconnect(arg1:string):Promise<void>;
 
 export function ExecuteQuery(arg1:string,arg2:string,arg3:number):Promise<main.QueryResponse>;
 
+export function ExecuteScriptFile(arg1:string,arg2:string,arg3:number):Promise<main.QueryResponse>;
+
 export function ExportObjects(arg1:string,arg2:main.ExportRequest):Promise<void>;
 
 export function GenerateInsertScript(arg1:string,arg2:main.InsertScriptRequest):Promise<string>;
@@ -79,13 +81,19 @@ export function LoadQueryState(arg1:string):Promise<store.QueryState>;
 
 export function LoadSession():Promise<store.Session>;
 
+export function OpenMultipleSqlFiles():Promise<Array<main.ScriptFile>>;
+
 export function OpenObject(arg1:string,arg2:db.DbObject):Promise<void>;
 
 export function OpenSqlFile():Promise<Record<string, string>>;
 
 export function PickDirectory():Promise<string>;
 
+export function PickSqlDirectory():Promise<string>;
+
 export function PrepareProcedureDebug(arg1:string,arg2:string,arg3:string):Promise<debug.Prefill>;
+
+export function ReadSqlFile(arg1:string):Promise<string>;
 
 export function ResetQueryState(arg1:string):Promise<void>;
 
@@ -108,6 +116,8 @@ export function SaveReport(arg1:string,arg2:string):Promise<string>;
 export function SaveScript(arg1:string,arg2:string):Promise<string>;
 
 export function SaveSession(arg1:store.Session):Promise<void>;
+
+export function ScanSqlFolder(arg1:string):Promise<Array<main.ScriptFile>>;
 
 export function SearchTables(arg1:string,arg2:string,arg3:number):Promise<Array<db.DbObject>>;
 

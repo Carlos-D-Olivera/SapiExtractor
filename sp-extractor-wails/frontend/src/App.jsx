@@ -104,7 +104,7 @@ export default function App() {
       const info = { ...conn, password: atob(match.passwordBase64), rememberPassword: true }
       try {
         await api.Connect(w.id, info)
-        const view = w.view === 'query' || (w.view === 'trace' && w.dbType === 'SQL_SERVER') ? w.view : 'objects'
+        const view = w.view === 'query' || w.view === 'compare' || w.view === 'script-runner' || (w.view === 'trace' && w.dbType === 'SQL_SERVER') ? w.view : 'objects'
         return { ...base, connInfo: info, view }
       } catch {
         return { ...base, pendingConn: conn } // the server is unreachable or the password changed
