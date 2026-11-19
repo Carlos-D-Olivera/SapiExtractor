@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
-import { Play, Plus, X, Loader2, AlertCircle, Ban, Clock, Table2, Trash2, Sparkles, FileCode2, Check, History, RotateCcw, Save } from 'lucide-react'
+import { Play, Plus, X, Loader2, AlertCircle, Ban, Clock, Table2, Trash2, Sparkles, FileCode2, Check, History, RotateCcw, Save, MessageSquare, Copy } from 'lucide-react'
 import clsx from 'clsx'
 import SqlEditor, { getIdentifierAtCursor, stripQuotes } from './SqlEditor'
 import { getStoredAutocompletes, loadStoredAutocompletes } from './AutocompletesModal'
@@ -22,6 +22,7 @@ function makeTab(seq, overrides = {}) {
     savedPath: null,
     savedSql: '',
     showResults: false,
+    activeResultTab: 'results',
     ...overrides,
   }
 }
@@ -56,9 +57,18 @@ function getStoredRowLimit() {
   return DEFAULT_ROW_LIMIT
 }
 
-function getStoredFontSize() {
+function getStoredEditorFontSize() {
   try {
     const v = localStorage.getItem('sp_extractor_query_font_size')
+    const n = Number(v)
+    if (Number.isFinite(n) && n >= MIN_FONT_SIZE && n <= MAX_FONT_SIZE) return n
+  } catch { /* ignore */ }
+  return DEFAULT_FONT_SIZE
+}
+
+function getStoredResultsFontSize() {
+  try {
+    const v = localStorage.getItem('sp_extractor_results_font_size')
     const n = Number(v)
     if (Number.isFinite(n) && n >= MIN_FONT_SIZE && n <= MAX_FONT_SIZE) return n
   } catch { /* ignore */ }
@@ -103,12 +113,15 @@ export default function QueryWorkspace({
   const [insertTarget, setInsertTarget] = useState(null)
   const [viewer, setViewer] = useState(null) // JSON / XML cell open in the viewer
   const [maxRows, setMaxRows] = useState(() => getStoredRowLimit())
-  const [fontSize, setFontSize] = useState(() => getStoredFontSize())
+  const [editorFontSize, setEditorFontSize] = useState(() => getStoredEditorFontSize())
+  const [resultsFontSize, setResultsFontSize] = useState(() => getStoredResultsFontSize())
   const [editorTheme, setEditorTheme] = useState(() => localStorage.getItem('sp_extractor_editor_theme') || 'one-dark')
   const [fontFamily, setFontFamily] = useState(() => localStorage.getItem('sp_extractor_editor_font_family') || 'Consolas')
   const [showIndent, setShowIndent] = useState(() => localStorage.getItem('sp_extractor_editor_show_indent') !== 'false')
   const [showFolding, setShowFolding] = useState(() => localStorage.getItem('sp_extractor_editor_show_folding') !== 'false')
   const workspaceRef = useRef(null)
+  const editorContainerRef = useRef(null)
+  const resultsContainerRef = useRef(null)
   const deltaRef = useRef(0)
   const schemaLoaded = useRef(false)
   const [schema, setSchema] = useState({})
@@ -132,8 +145,8 @@ export default function QueryWorkspace({
     onDirtyChangeRef.current?.(hasDirty)
   }, [tabs])
 
-  const changeFontSize = useCallback((delta) => {
-    setFontSize(prev => {
+  const changeEditorFontSize = useCallback((delta) => {
+    setEditorFontSize(prev => {
       const next = Math.min(MAX_FONT_SIZE, Math.max(MIN_FONT_SIZE, prev + delta))
       try {
         localStorage.setItem('sp_extractor_query_font_size', String(next))
@@ -142,14 +155,33 @@ export default function QueryWorkspace({
     })
   }, [])
 
-  const resetFontSize = useCallback(() => {
-    setFontSize(DEFAULT_FONT_SIZE)
+  const resetEditorFontSize = useCallback(() => {
+    setEditorFontSize(DEFAULT_FONT_SIZE)
     try {
       localStorage.setItem('sp_extractor_query_font_size', String(DEFAULT_FONT_SIZE))
     } catch { /* ignore */ }
   }, [])
 
-  // Ctrl + MouseWheel zooms text across QueryWorkspace
+  const changeResultsFontSize = useCallback((delta) => {
+    setResultsFontSize(prev => {
+      const next = Math.min(MAX_FONT_SIZE, Math.max(MIN_FONT_SIZE, prev + delta))
+      try {
+        localStorage.setItem('sp_extractor_results_font_size', String(next))
+      } catch { /* ignore */ }
+      return next
+    })
+  }, [])
+
+  const resetResultsFontSize = useCallback(() => {
+    setResultsFontSize(DEFAULT_FONT_SIZE)
+    try {
+      localStorage.setItem('sp_extractor_results_font_size', String(DEFAULT_FONT_SIZE))
+    } catch { /* ignore */ }
+  }, [])
+
+  // Ctrl + MouseWheel zooms text independently:
+  // - over the Results panel -> zooms resultsFontSize
+  // - over the Editor -> zooms editorFontSize
   useEffect(() => {
     const el = workspaceRef.current
     if (!el) return
@@ -181,7 +213,12 @@ export default function QueryWorkspace({
         deltaRef.current -= steps * THRESHOLD
         // deltaY < 0 is wheel up (zoom in, +steps)
         // deltaY > 0 is wheel down (zoom out, -steps)
-        changeFontSize(-steps)
+        const isOverResults = resultsContainerRef.current && resultsContainerRef.current.contains(e.target)
+        if (isOverResults) {
+          changeResultsFontSize(-steps)
+        } else {
+          changeEditorFontSize(-steps)
+        }
       }
     }
 
@@ -190,7 +227,7 @@ export default function QueryWorkspace({
       el.removeEventListener('wheel', handleWheel, { capture: true })
       if (timeoutId) clearTimeout(timeoutId)
     }
-  }, [changeFontSize])
+  }, [changeEditorFontSize, changeResultsFontSize])
 
   // Keyboard zoom shortcuts (Ctrl +, Ctrl -, Ctrl 0) when QueryWorkspace is active
   useEffect(() => {
@@ -198,21 +235,26 @@ export default function QueryWorkspace({
 
     const handleKeyDown = (e) => {
       if (!e.ctrlKey && !e.metaKey) return
+
+      const isResultsTarget = resultsContainerRef.current && resultsContainerRef.current.contains(document.activeElement)
+      const changeTarget = isResultsTarget ? changeResultsFontSize : changeEditorFontSize
+      const resetTarget = isResultsTarget ? resetResultsFontSize : resetEditorFontSize
+
       if (e.key === '=' || e.key === '+' || e.code === 'NumpadAdd') {
         e.preventDefault()
-        changeFontSize(1)
+        changeTarget(1)
       } else if (e.key === '-' || e.code === 'NumpadSubtract') {
         e.preventDefault()
-        changeFontSize(-1)
+        changeTarget(-1)
       } else if (e.key === '0' || e.code === 'Numpad0') {
         e.preventDefault()
-        resetFontSize()
+        resetTarget()
       }
     }
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [visible, changeFontSize, resetFontSize])
+  }, [visible, changeEditorFontSize, resetEditorFontSize, changeResultsFontSize, resetResultsFontSize])
 
   const handleSaveAutocompletes = async (newList) => {
     setAutocompletes(newList)
@@ -238,7 +280,7 @@ export default function QueryWorkspace({
     const handleSettingsUpdated = (e) => {
       if (e.detail) {
         if (e.detail.editorFontSize) {
-          setFontSize(e.detail.editorFontSize)
+          setEditorFontSize(e.detail.editorFontSize)
         }
         if (e.detail.defaultRowLimit !== undefined) {
           setMaxRows(e.detail.defaultRowLimit)
@@ -470,9 +512,20 @@ export default function QueryWorkspace({
       // A query with its own TOP/LIMIT/FETCH is left alone; everything else gets the cap.
       const cap = EXPLICIT_LIMIT.test(text) ? 0 : maxRows
       const result = await api.ExecuteQuery(workspaceId, text, cap)
-      patchTab(tab.id, { result, running: false, showResults: true })
+      const hasSets = result?.sets && result.sets.length > 0
+      patchTab(tab.id, {
+        result,
+        running: false,
+        showResults: true,
+        activeResultTab: hasSets ? 'results' : 'messages',
+      })
     } catch (e) {
-      patchTab(tab.id, { error: e.toString(), running: false, showResults: true })
+      patchTab(tab.id, {
+        error: e.toString(),
+        running: false,
+        showResults: true,
+        activeResultTab: 'messages',
+      })
     }
   }, [workspaceId, patchTab, maxRows])
 
@@ -865,31 +918,32 @@ export default function QueryWorkspace({
                 </>
               )}
             </div>
-            {/* Zoom text control */}
+            {/* Zoom text control for Editor */}
             <div
               className="flex items-center gap-1 px-1.5 py-0.5 rounded-lg bg-surface-800/80 border border-surface-600/70 text-slate-400 select-none"
-              title="Zoom de texto: Ctrl + Rueda del ratón o Ctrl +/- (clic para reiniciar a 100%)"
+              title="Zoom del editor: Ctrl + Rueda del ratón sobre el editor o Ctrl +/- (clic para reiniciar a 100%)"
             >
+              <span className="text-[10px] text-slate-500 font-medium px-0.5">Editor</span>
               <button
-                onClick={() => changeFontSize(-1)}
-                disabled={fontSize <= MIN_FONT_SIZE}
+                onClick={() => changeEditorFontSize(-1)}
+                disabled={editorFontSize <= MIN_FONT_SIZE}
                 className="hover:text-white px-1 text-xs font-bold disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                title="Reducir texto (Ctrl - o Ctrl+Rueda abajo)"
+                title="Reducir texto del editor (Ctrl -)"
               >
                 −
               </button>
               <button
-                onClick={resetFontSize}
+                onClick={resetEditorFontSize}
                 className="font-mono text-[11px] hover:text-brand-light px-1 transition-colors min-w-[36px] text-center"
                 title="Reiniciar tamaño a 100% (12px)"
               >
-                {Math.round((fontSize / DEFAULT_FONT_SIZE) * 100)}%
+                {Math.round((editorFontSize / DEFAULT_FONT_SIZE) * 100)}%
               </button>
               <button
-                onClick={() => changeFontSize(1)}
-                disabled={fontSize >= MAX_FONT_SIZE}
+                onClick={() => changeEditorFontSize(1)}
+                disabled={editorFontSize >= MAX_FONT_SIZE}
                 className="hover:text-white px-1 text-xs font-bold disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                title="Aumentar texto (Ctrl + o Ctrl+Rueda arriba)"
+                title="Aumentar texto del editor (Ctrl +)"
               >
                 +
               </button>
@@ -900,7 +954,7 @@ export default function QueryWorkspace({
           </div>
 
           {/* Editor */}
-          <div className={clsx('px-3', showResults ? 'flex-shrink-0' : 'flex-1 overflow-hidden pb-3 min-h-0')}>
+          <div ref={editorContainerRef} className={clsx('px-3', showResults ? 'flex-shrink-0' : 'flex-1 overflow-hidden pb-3 min-h-0')}>
             <div
               className={clsx('rounded-lg overflow-hidden', showResults ? 'resize-y' : 'h-full')}
               style={{
@@ -915,7 +969,7 @@ export default function QueryWorkspace({
                 dbType={dbType}
                 schema={schema}
                 autocompletes={autocompletes}
-                fontSize={fontSize}
+                fontSize={editorFontSize}
                 fontFamily={fontFamily}
                 editorTheme={editorTheme}
                 showIndent={showIndent}
@@ -936,10 +990,13 @@ export default function QueryWorkspace({
           </div>
 
           {/* Results */}
-          <div className={clsx('flex-1 overflow-hidden px-3 pb-3 pt-1', !showResults && 'hidden')}>
+          <div ref={resultsContainerRef} className={clsx('flex-1 overflow-hidden px-3 pb-3 pt-1', !showResults && 'hidden')}>
             <ResultArea
               tab={active}
-              fontSize={fontSize}
+              fontSize={resultsFontSize}
+              changeResultsFontSize={changeResultsFontSize}
+              resetResultsFontSize={resetResultsFontSize}
+              onChangeActiveTab={(tabName) => patchTab(active.id, { activeResultTab: tabName })}
               onInsertScript={set => setInsertTarget({ set, sql: active.lastSql || active.sql })}
               onOpenCell={setViewer}
             />
@@ -1068,15 +1125,16 @@ export default function QueryWorkspace({
   )
 }
 
-function ResultArea({ tab, fontSize, onInsertScript, onOpenCell }) {
-  if (tab.error) {
-    return (
-      <div className="flex items-start gap-2 rounded-lg px-3 py-2 bg-red-500/10 border border-red-500/30 text-red-400 text-sm overflow-auto h-full">
-        <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
-        <pre className="whitespace-pre-wrap font-mono" style={{ margin: 0, fontSize: `${fontSize}px` }}>{tab.error}</pre>
-      </div>
-    )
-  }
+function ResultArea({
+  tab,
+  fontSize,
+  changeResultsFontSize,
+  resetResultsFontSize,
+  onChangeActiveTab,
+  onInsertScript,
+  onOpenCell,
+}) {
+  const [copiedMessages, setCopiedMessages] = useState(false)
 
   if (tab.running) {
     return (
@@ -1087,7 +1145,7 @@ function ResultArea({ tab, fontSize, onInsertScript, onOpenCell }) {
     )
   }
 
-  if (!tab.result) {
+  if (!tab.result && !tab.error) {
     return (
       <div className="flex flex-col items-center justify-center h-full gap-2 text-slate-600">
         <Table2 className="w-8 h-8 opacity-40" />
@@ -1096,17 +1154,212 @@ function ResultArea({ tab, fontSize, onInsertScript, onOpenCell }) {
     )
   }
 
-  const { sets = [], message = '', durationMs = 0 } = tab.result
+  const { sets = [], message = '', durationMs = 0, messages = [] } = tab.result || {}
+  const activeTab = tab.activeResultTab || (sets.length > 0 ? 'results' : 'messages')
+
+  const handleCopyMessages = () => {
+    const lines = []
+    if (tab.error) lines.push(tab.error)
+    if (messages && messages.length > 0) {
+      messages.forEach(m => lines.push(m.text))
+    }
+    if (message) lines.push(message)
+    if (durationMs > 0) lines.push(`Tiempo de ejecución: ${durationMs} ms`)
+    const text = lines.join('\n')
+    try {
+      navigator.clipboard?.writeText(text)
+      setCopiedMessages(true)
+      setTimeout(() => setCopiedMessages(false), 1500)
+    } catch { /* ignore */ }
+  }
 
   return (
-    <div className="flex flex-col h-full gap-2 overflow-auto">
-      <div className="flex items-center gap-3 text-xs text-slate-500 flex-shrink-0">
-        <span>{message}</span>
-        <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{durationMs} ms</span>
+    <div className="flex flex-col h-full overflow-hidden">
+      {/* Top tabs and control bar */}
+      <div className="flex items-center gap-1 border-b border-surface-600 pb-1 mb-2 flex-shrink-0">
+        {/* Tab Resultados */}
+        <button
+          type="button"
+          onClick={() => onChangeActiveTab?.('results')}
+          className={clsx(
+            'flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-medium transition-colors select-none',
+            activeTab === 'results'
+              ? 'text-sky-300 bg-surface-700/80 border border-surface-600 shadow-sm'
+              : 'text-slate-400 hover:text-slate-200 hover:bg-surface-800/60'
+          )}
+        >
+          <Table2 className="w-3.5 h-3.5" />
+          <span>Resultados</span>
+          {sets.length > 0 && (
+            <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-sky-400/20 text-sky-300 font-mono font-bold">
+              {sets.length}
+            </span>
+          )}
+        </button>
+
+        {/* Tab Mensajes */}
+        <button
+          type="button"
+          onClick={() => onChangeActiveTab?.('messages')}
+          className={clsx(
+            'flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-medium transition-colors select-none',
+            activeTab === 'messages'
+              ? 'text-sky-300 bg-surface-700/80 border border-surface-600 shadow-sm'
+              : 'text-slate-400 hover:text-slate-200 hover:bg-surface-800/60'
+          )}
+        >
+          <MessageSquare className="w-3.5 h-3.5" />
+          <span>Mensajes</span>
+          {tab.error ? (
+            <span className="w-2 h-2 rounded-full bg-red-400" title="Error" />
+          ) : messages.length > 0 ? (
+            <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-slate-700 text-slate-300 font-mono font-bold">
+              {messages.length}
+            </span>
+          ) : null}
+        </button>
+
+        <div className="flex-1" />
+
+        {/* Execution duration and summary */}
+        <div className="flex items-center gap-3 text-xs text-slate-400 mr-2 flex-shrink-0">
+          {message && <span className="truncate max-w-[280px] hidden sm:inline" title={message}>{message}</span>}
+          <span className="flex items-center gap-1 text-[11px] text-slate-400 font-mono">
+            <Clock className="w-3 h-3 text-slate-500" />
+            {durationMs} ms
+          </span>
+        </div>
+
+        {/* Zoom control for Results */}
+        <div
+          className="flex items-center gap-1 px-1.5 py-0.5 rounded-lg bg-surface-800/80 border border-surface-600/70 text-slate-400 select-none flex-shrink-0"
+          title="Zoom de resultados: Ctrl + Rueda sobre resultados o Ctrl +/-"
+        >
+          <span className="text-[10px] text-slate-500 font-medium px-0.5">Resultados</span>
+          <button
+            onClick={() => changeResultsFontSize?.(-1)}
+            disabled={fontSize <= MIN_FONT_SIZE}
+            className="hover:text-white px-1 text-xs font-bold disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            title="Reducir tamaño (Ctrl -)"
+          >
+            −
+          </button>
+          <button
+            onClick={resetResultsFontSize}
+            className="font-mono text-[11px] hover:text-brand-light px-1 transition-colors min-w-[36px] text-center"
+            title="Reiniciar tamaño a 100% (12px)"
+          >
+            {Math.round((fontSize / DEFAULT_FONT_SIZE) * 100)}%
+          </button>
+          <button
+            onClick={() => changeResultsFontSize?.(1)}
+            disabled={fontSize >= MAX_FONT_SIZE}
+            className="hover:text-white px-1 text-xs font-bold disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            title="Aumentar tamaño (Ctrl +)"
+          >
+            +
+          </button>
+        </div>
       </div>
-      {sets.map((set, i) => (
-        <ResultGrid key={i} set={set} index={i} total={sets.length} fontSize={fontSize} onInsertScript={onInsertScript} onOpenCell={onOpenCell} />
-      ))}
+
+      {/* Tab content area */}
+      <div className="flex-1 overflow-hidden min-h-0">
+        {activeTab === 'results' ? (
+          tab.error ? (
+            <div className="flex flex-col items-center justify-center h-full p-6 text-center text-slate-500 bg-surface-900/40 rounded-xl border border-surface-600/50">
+              <AlertCircle className="w-8 h-8 text-red-400 mb-2" />
+              <p className="text-xs text-red-300 font-medium">La ejecución terminó con error</p>
+              <button
+                type="button"
+                onClick={() => onChangeActiveTab?.('messages')}
+                className="mt-2 text-xs text-sky-400 hover:text-sky-300 hover:underline"
+              >
+                Ver mensaje de error en la pestaña Mensajes →
+              </button>
+            </div>
+          ) : sets.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-full p-6 text-center text-slate-500 bg-surface-900/40 rounded-xl border border-surface-600/50">
+              <Table2 className="w-8 h-8 opacity-40 mb-2" />
+              <p className="text-xs text-slate-300 font-medium">No se devolvieron conjuntos de datos</p>
+              <p className="text-[11px] text-slate-500 mt-1">La instrucción ejecutada no genera resultados tabulares.</p>
+              <button
+                type="button"
+                onClick={() => onChangeActiveTab?.('messages')}
+                className="mt-2 text-xs text-sky-400 hover:text-sky-300 hover:underline"
+              >
+                Ver mensajes de ejecución ({message || 'Comando completado'}) →
+              </button>
+            </div>
+          ) : (
+            <div className="flex flex-col h-full gap-2 overflow-auto">
+              {sets.map((set, i) => (
+                <ResultGrid
+                  key={i}
+                  set={set}
+                  index={i}
+                  total={sets.length}
+                  fontSize={fontSize}
+                  onInsertScript={onInsertScript}
+                  onOpenCell={onOpenCell}
+                />
+              ))}
+            </div>
+          )
+        ) : (
+          /* Mensajes Tab */
+          <div className="flex flex-col h-full overflow-hidden rounded-xl border border-surface-600/70 bg-[#0d1420]">
+            <div className="flex items-center justify-between px-3 py-1.5 border-b border-surface-700/60 bg-surface-800/40 text-[10px] text-slate-400 select-none flex-shrink-0">
+              <span className="font-semibold uppercase tracking-wider text-slate-400">Salida de mensajes</span>
+              <button
+                type="button"
+                onClick={handleCopyMessages}
+                className="flex items-center gap-1 px-2 py-0.5 rounded hover:bg-surface-700/60 hover:text-white text-slate-400 transition-colors"
+                title="Copiar todos los mensajes al portapapeles"
+              >
+                {copiedMessages ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                <span>{copiedMessages ? 'Copiado' : 'Copiar mensajes'}</span>
+              </button>
+            </div>
+
+            <div
+              className="flex-1 overflow-auto p-3 font-mono leading-relaxed select-text"
+              style={{ fontSize: `${fontSize}px` }}
+            >
+              {tab.error && (
+                <div className="text-red-400 mb-2 font-mono whitespace-pre-wrap">
+                  {tab.error}
+                </div>
+              )}
+
+              {messages.length > 0 && (
+                <div className="space-y-1 mb-2 font-mono">
+                  {messages.map((msg, i) => (
+                    <div
+                      key={i}
+                      className={clsx(
+                        'whitespace-pre-wrap font-mono',
+                        msg.kind === 'error' ? 'text-red-400' : 'text-slate-300'
+                      )}
+                    >
+                      {msg.text}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {message && (
+                <div className="text-slate-400 font-mono whitespace-pre-wrap">
+                  {message}
+                </div>
+              )}
+
+              <div className="text-slate-500 mt-2 text-[11px] font-mono border-t border-surface-800/60 pt-1.5">
+                Tiempo de finalización: {new Date().toLocaleTimeString()} · Duración: {durationMs} ms
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
@@ -1200,15 +1453,24 @@ function ResultGrid({ set, index, total, fontSize, onInsertScript, onOpenCell })
         className="overflow-auto rounded-t-xl border border-surface-600 outline-none select-text"
         style={height ? { height } : { maxHeight: '45vh' }}
       >
-        <table className="border-collapse" style={{ fontSize: `${Math.min(fontSize || 12, 20)}px` }}>
+        <table className="border-collapse min-w-full" style={{ fontSize: `${fontSize || 12}px` }}>
           <thead className="sticky top-0 z-10">
             <tr style={{ background: '#111B2C' }}>
               <th className="px-2 py-1.5 text-right text-slate-600 font-normal border-r border-surface-700/60 w-10">#</th>
-              {columns.map((c, i) => (
-                <th key={i} className="px-3 py-1.5 text-left font-medium text-slate-300 whitespace-nowrap border-r border-surface-700/60">
-                  {c}
-                </th>
-              ))}
+              {columns.map((c, i) => {
+                const isLast = i === columns.length - 1
+                return (
+                  <th
+                    key={i}
+                    className={clsx(
+                      'px-3 py-1.5 text-left font-medium text-slate-300 whitespace-nowrap',
+                      isLast ? 'w-full border-r-0' : 'border-r border-surface-700/60'
+                    )}
+                  >
+                    {c}
+                  </th>
+                )
+              })}
             </tr>
           </thead>
           <tbody>
@@ -1222,14 +1484,18 @@ function ResultGrid({ set, index, total, fontSize, onInsertScript, onOpenCell })
               <tr key={r} className={r % 2 === 0 ? 'hover:bg-surface-700/30' : 'bg-surface-800/30 hover:bg-surface-700/30'}>
                 <td className="px-2 py-1 text-right text-slate-600 font-mono border-r border-surface-700/60">{r + 1}</td>
                 {row.map((cell, c) => {
+                  const isLast = c === columns.length - 1
                   // JSON / XML values open in a viewer when clicked.
                   const structured = onOpenCell ? detectType(cell, types[c]) : null
                   return (
                     <td
                       key={c}
-                      className={`px-3 py-1 font-mono whitespace-nowrap border-r border-surface-700/60 align-top ${
-                        sel && sel.r === r && sel.c === c ? 'outline outline-1 -outline-offset-1 outline-brand-light bg-brand-dark/30 ' : ''}${
-                        structured ? 'max-w-[320px] overflow-hidden text-ellipsis text-sky-300 cursor-pointer hover:bg-sky-500/10 underline decoration-dotted underline-offset-2' : 'text-slate-200'}`}
+                      className={clsx(
+                        'px-3 py-1 font-mono whitespace-nowrap align-top',
+                        isLast ? 'border-r-0' : 'border-r border-surface-700/60',
+                        sel && sel.r === r && sel.c === c ? 'outline outline-1 -outline-offset-1 outline-brand-light bg-brand-dark/30 ' : '',
+                        structured ? 'max-w-[320px] overflow-hidden text-ellipsis text-sky-300 cursor-pointer hover:bg-sky-500/10 underline decoration-dotted underline-offset-2' : 'text-slate-200'
+                      )}
                       title={structured ? `Clic para ver como ${structured.toUpperCase()}` : undefined}
                       onClick={() => {
                         setSel({ r, c })
