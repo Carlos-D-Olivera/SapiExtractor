@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Terminal, Copy, Check, FileCode2, Loader2, AlertCircle, Folder } from 'lucide-react'
 import clsx from 'clsx'
+import ReadOnlySqlViewer from './ReadOnlySqlViewer'
 
 export default function ScriptContentPanel({
   script,
@@ -10,8 +11,28 @@ export default function ScriptContentPanel({
   onEditInQuery,
   style,
   panelRef,
+  dbType = 'SQL_SERVER',
+  editorTheme,
+  fontSize,
+  fontFamily,
 }) {
   const [copied, setCopied] = useState(false)
+
+  const [currentTheme, setCurrentTheme] = useState(() => editorTheme || localStorage.getItem('sp_extractor_editor_theme') || 'one-dark')
+  const [currentFont, setCurrentFont] = useState(() => fontFamily || localStorage.getItem('sp_extractor_editor_font_family') || 'Consolas')
+  const [currentSize, setCurrentSize] = useState(() => fontSize || Number(localStorage.getItem('sp_extractor_query_font_size')) || 12)
+
+  useEffect(() => {
+    const handleUpdate = (e) => {
+      if (e.detail) {
+        if (e.detail.editorTheme) setCurrentTheme(e.detail.editorTheme)
+        if (e.detail.editorFontFamily) setCurrentFont(e.detail.editorFontFamily)
+        if (e.detail.editorFontSize) setCurrentSize(e.detail.editorFontSize)
+      }
+    }
+    window.addEventListener('spextractor:settings-updated', handleUpdate)
+    return () => window.removeEventListener('spextractor:settings-updated', handleUpdate)
+  }, [])
 
   const handleCopy = async () => {
     if (!content) return
@@ -99,8 +120,8 @@ export default function ScriptContentPanel({
         </button>
       </div>
 
-      {/* Script body */}
-      <div className="flex-1 overflow-auto bg-[#18191A] font-mono text-xs text-slate-200">
+      {/* Script body with syntax highlighting */}
+      <div className="flex-1 overflow-hidden bg-surface-950 flex flex-col">
         {loading ? (
           <div className="flex items-center justify-center h-full gap-2 text-slate-400">
             <Loader2 className="w-5 h-5 animate-spin text-brand-light" />
@@ -112,20 +133,13 @@ export default function ScriptContentPanel({
             <span>{error}</span>
           </div>
         ) : (
-          <div className="flex min-w-full">
-            {/* Line numbers gutter */}
-            <div className="select-none py-3 px-2 text-right text-slate-600 bg-[#141516] border-r border-surface-700/50 min-w-[42px]">
-              {lines.map((_, i) => (
-                <div key={i} className="leading-5 text-[11px]">
-                  {i + 1}
-                </div>
-              ))}
-            </div>
-            {/* Code lines */}
-            <pre className="p-3 leading-5 whitespace-pre overflow-x-auto flex-1 select-text text-[11px] text-slate-200" style={{ margin: 0 }}>
-              {content}
-            </pre>
-          </div>
+          <ReadOnlySqlViewer
+            content={content || ''}
+            dbType={dbType}
+            editorTheme={currentTheme}
+            fontSize={currentSize}
+            fontFamily={currentFont}
+          />
         )}
       </div>
     </div>

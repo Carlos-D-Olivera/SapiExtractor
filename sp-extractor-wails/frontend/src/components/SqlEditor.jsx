@@ -1,6 +1,19 @@
 import { useEffect, useRef, useState } from 'react'
-import { basicSetup } from 'codemirror'
-import { EditorView, keymap, MatchDecorator, Decoration, ViewPlugin, lineNumbers } from '@codemirror/view'
+import {
+  EditorView,
+  keymap,
+  MatchDecorator,
+  Decoration,
+  ViewPlugin,
+  lineNumbers,
+  highlightActiveLineGutter,
+  highlightSpecialChars,
+  drawSelection,
+  dropCursor,
+  rectangularSelection,
+  crosshairCursor,
+  highlightActiveLine,
+} from '@codemirror/view'
 import { Compartment, EditorState, EditorSelection, Prec } from '@codemirror/state'
 import SqlContextMenu from './SqlContextMenu'
 import {
@@ -12,10 +25,39 @@ import {
   schemaCompletionSource,
   keywordCompletionSource,
 } from '@codemirror/lang-sql'
-import { LanguageSupport } from '@codemirror/language'
-import { acceptCompletion, closeCompletion, completionStatus } from '@codemirror/autocomplete'
-import { insertNewlineAndIndent, addCursorAbove, addCursorBelow, copyLineDown, copyLineUp } from '@codemirror/commands'
-import { oneDark } from '@codemirror/theme-one-dark'
+import {
+  indentOnInput,
+  bracketMatching,
+  syntaxHighlighting,
+  defaultHighlightStyle,
+  LanguageSupport,
+} from '@codemirror/language'
+import {
+  closeBrackets,
+  autocompletion,
+  closeBracketsKeymap,
+  completionKeymap,
+  acceptCompletion,
+  closeCompletion,
+  completionStatus,
+} from '@codemirror/autocomplete'
+import { highlightSelectionMatches, searchKeymap } from '@codemirror/search'
+import {
+  history,
+  defaultKeymap,
+  historyKeymap,
+  insertNewlineAndIndent,
+  addCursorAbove,
+  addCursorBelow,
+  copyLineDown,
+  copyLineUp,
+  indentMore,
+  indentLess,
+  insertTab,
+} from '@codemirror/commands'
+import { indentationMarkers } from '@replit/codemirror-indentation-markers'
+import { sqlFoldExtension } from '../utils/sqlFolding'
+import { getEditorThemeExtension, makeFontTheme } from '../utils/editorThemes'
 
 // Dialects with case-insensitive identifiers so names aren't auto-quoted
 const customMSSQL = SQLDialect.define({
@@ -37,15 +79,15 @@ const DIALECTS = {
   POSTGRESQL: customPostgreSQL,
 }
 
-const theme = EditorView.theme({
-  '&': { height: '100%', backgroundColor: '#18191A' },
-  '.cm-scroller': { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace', overflow: 'auto' },
-  '.cm-gutters': { backgroundColor: '#18191A', borderRight: '1px solid rgba(36,51,80,0.8)', color: '#64748b' },
+const baseTheme = EditorView.theme({
+  '&': { height: '100%' },
+  '.cm-scroller': { overflow: 'auto' },
+  '.cm-gutters': { borderRight: '1px solid rgba(255, 255, 255, 0.08)', color: '#64748b' },
   '.cm-lineNumbers .cm-gutterElement': { cursor: 'pointer' },
   '.cm-activeLine': { backgroundColor: 'rgba(255,255,255,0.03)' },
   '.cm-activeLineGutter': { backgroundColor: 'rgba(255,255,255,0.05)' },
   '&.cm-focused': { outline: 'none' },
-  '.cm-tooltip.cm-tooltip-autocomplete': { fontFamily: 'ui-monospace, Consolas, monospace' },
+  '.cm-tooltip.cm-tooltip-autocomplete': { fontFamily: 'inherit' },
   // High contrast selection background styling
   '&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection': {
     backgroundColor: '#245d9a !important',
@@ -68,14 +110,44 @@ const theme = EditorView.theme({
     textDecoration: 'underline',
     textDecorationColor: '#facc15',
   },
+  '.cm-foldGutter': { width: '16px' },
+  '.cm-foldGutter .cm-gutterElement': {
+    cursor: 'pointer',
+    color: '#64748b',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  '.cm-foldGutter .cm-gutterElement:hover': {
+    color: '#38bdf8',
+  },
+  '.cm-fold-marker': {
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontSize: '11px',
+    fontWeight: 'bold',
+    userSelect: 'none',
+    width: '14px',
+    height: '14px',
+    borderRadius: '2px',
+    lineHeight: '1',
+  },
+  '.cm-foldPlaceholder': {
+    backgroundColor: 'rgba(56, 189, 248, 0.15)',
+    border: '1px solid rgba(56, 189, 248, 0.4)',
+    color: '#7dd3fc',
+    borderRadius: '3px',
+    padding: '0 4px',
+    margin: '0 2px',
+    fontSize: '11px',
+    cursor: 'pointer',
+  },
+  '.cm-indent-markers': {
+    '--indent-marker-color': 'rgba(255, 255, 255, 0.08)',
+    '--indent-marker-active-color': 'rgba(56, 189, 248, 0.45)',
+  },
 }, { dark: true })
-
-function makeFontSizeTheme(size) {
-  return EditorView.theme({
-    '&': { fontSize: `${size}px` },
-    '.cm-tooltip.cm-tooltip-autocomplete': { fontSize: `${size}px` },
-  })
-}
 
 // Selects the entire line (and supports extending/dragging across lines) when clicking line numbers
 const lineNumbersExtension = lineNumbers({
@@ -386,11 +458,18 @@ export default function SqlEditor({
   onToggleResults,
   viewRef,
   fontSize = 12,
+  fontFamily = 'Consolas',
+  editorTheme = 'one-dark',
+  showIndent = true,
+  showFolding = true,
 }) {
   const host = useRef(null)
   const lang = useRef(new Compartment())
   const highlightComp = useRef(new Compartment())
-  const fontSizeComp = useRef(new Compartment())
+  const fontComp = useRef(new Compartment())
+  const themeComp = useRef(new Compartment())
+  const indentComp = useRef(new Compartment())
+  const foldComp = useRef(new Compartment())
   const onChangeRef = useRef(onChange)
   const onRunRef = useRef(onRun)
   const onAltF1Ref = useRef(onAltF1)
@@ -549,7 +628,13 @@ export default function SqlEditor({
         return insertNewlineAndIndent(view)
       },
     }, {
+      key: 'Shift-Tab',
+      run: (view) => {
+        return indentLess(view)
+      },
+    }, {
       // Tab: Expand snippet if code matches, otherwise accept completion suggestion if popup is open.
+      // If neither, insert tab / indent selection (never jumps focus outside the editor!).
       key: 'Tab',
       run: (view) => {
         const list = autocompletesRef.current || []
@@ -604,7 +689,8 @@ export default function SqlEditor({
           return true
         }
 
-        return false
+        // 3. Fallback: Type tab or indent selection (never leave focus!)
+        return insertTab(view)
       },
     }]))
 
@@ -614,13 +700,36 @@ export default function SqlEditor({
         doc: value || '',
         extensions: [
           customKeys,
-          basicSetup,
           lineNumbersExtension,
+          highlightActiveLineGutter(),
+          highlightSpecialChars(),
+          history(),
+          drawSelection(),
+          dropCursor(),
+          EditorState.allowMultipleSelections.of(true),
+          indentOnInput(),
+          syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
+          bracketMatching(),
+          closeBrackets(),
+          autocompletion(),
+          rectangularSelection(),
+          crosshairCursor(),
+          highlightActiveLine(),
+          highlightSelectionMatches(),
+          keymap.of([
+            ...closeBracketsKeymap,
+            ...defaultKeymap,
+            ...searchKeymap,
+            ...historyKeymap,
+            ...completionKeymap,
+          ]),
           lang.current.of(sqlLanguage(dbType, schema)),
           highlightComp.current.of(createHighlightPlugin(autocompletesRef.current)),
-          fontSizeComp.current.of(makeFontSizeTheme(fontSize || 12)),
-          oneDark,
-          theme,
+          fontComp.current.of(makeFontTheme(fontSize || 12, fontFamily)),
+          themeComp.current.of(getEditorThemeExtension(editorTheme)),
+          indentComp.current.of(showIndent ? indentationMarkers({ highlightActiveBlock: true, thickness: 1 }) : []),
+          foldComp.current.of(showFolding ? sqlFoldExtension : []),
+          baseTheme,
           EditorView.domEventHandlers({
             contextmenu: (event, view) => {
               event.preventDefault()
@@ -678,16 +787,48 @@ export default function SqlEditor({
     }
   }, [autocompletes, viewRef])
 
-  // Reconfigure font size and remeasure when fontSize changes
+  // Reconfigure font and size
   useEffect(() => {
     const view = viewRef?.current
     if (view) {
       view.dispatch({
-        effects: fontSizeComp.current.reconfigure(makeFontSizeTheme(fontSize || 12)),
+        effects: fontComp.current.reconfigure(makeFontTheme(fontSize || 12, fontFamily)),
       })
       view.requestMeasure()
     }
-  }, [fontSize, viewRef])
+  }, [fontSize, fontFamily, viewRef])
+
+  // Reconfigure editor theme
+  useEffect(() => {
+    const view = viewRef?.current
+    if (view) {
+      view.dispatch({
+        effects: themeComp.current.reconfigure(getEditorThemeExtension(editorTheme)),
+      })
+    }
+  }, [editorTheme, viewRef])
+
+  // Reconfigure indentation markers
+  useEffect(() => {
+    const view = viewRef?.current
+    if (view) {
+      view.dispatch({
+        effects: indentComp.current.reconfigure(
+          showIndent ? indentationMarkers({ highlightActiveBlock: true, thickness: 1 }) : []
+        ),
+      })
+    }
+  }, [showIndent, viewRef])
+
+  // Reconfigure code folding
+  useEffect(() => {
+    const view = viewRef?.current
+    if (view) {
+      view.dispatch({
+        effects: foldComp.current.reconfigure(showFolding ? sqlFoldExtension : []),
+      })
+    }
+  }, [showFolding, viewRef])
 
   return (
     <>

@@ -931,6 +931,26 @@ export namespace main {
 	        this.deleteFirst = source["deleteFirst"];
 	    }
 	}
+	export class PrintMessage {
+	    kind: string;
+	    text: string;
+	    number: number;
+	    line: number;
+	    proc: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new PrintMessage(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.kind = source["kind"];
+	        this.text = source["text"];
+	        this.number = source["number"];
+	        this.line = source["line"];
+	        this.proc = source["proc"];
+	    }
+	}
 	export class ResultSet {
 	    columns: string[];
 	    types: string[];
@@ -951,6 +971,7 @@ export namespace main {
 	}
 	export class QueryResponse {
 	    sets: ResultSet[];
+	    messages: PrintMessage[];
 	    message: string;
 	    durationMs: number;
 	    rowCount: number;
@@ -962,6 +983,7 @@ export namespace main {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.sets = this.convertValues(source["sets"], ResultSet);
+	        this.messages = this.convertValues(source["messages"], PrintMessage);
 	        this.message = source["message"];
 	        this.durationMs = source["durationMs"];
 	        this.rowCount = source["rowCount"];
@@ -1251,6 +1273,11 @@ export namespace store {
 	    editorFontSize: number;
 	    defaultOutDir: string;
 	    includeDropHeader: boolean;
+	    appTheme?: string;
+	    editorTheme?: string;
+	    editorFontFamily?: string;
+	    editorShowIndent: boolean;
+	    editorShowFolding: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new Settings(source);
@@ -1268,6 +1295,11 @@ export namespace store {
 	        this.editorFontSize = source["editorFontSize"];
 	        this.defaultOutDir = source["defaultOutDir"];
 	        this.includeDropHeader = source["includeDropHeader"];
+	        this.appTheme = source["appTheme"];
+	        this.editorTheme = source["editorTheme"];
+	        this.editorFontFamily = source["editorFontFamily"];
+	        this.editorShowIndent = source["editorShowIndent"];
+	        this.editorShowFolding = source["editorShowFolding"];
 	    }
 	}
 
