@@ -1433,15 +1433,24 @@ function ResultGrid({ set, index, total, fontSize, onInsertScript, onOpenCell })
         className="overflow-auto rounded-t-xl border border-surface-600 outline-none select-text"
         style={height ? { height } : { maxHeight: '45vh' }}
       >
-        <table className="border-collapse" style={{ fontSize: `${fontSize || 12}px` }}>
+        <table className="border-collapse min-w-full" style={{ fontSize: `${fontSize || 12}px` }}>
           <thead className="sticky top-0 z-10">
             <tr style={{ background: '#111B2C' }}>
               <th className="px-2 py-1.5 text-right text-slate-600 font-normal border-r border-surface-700/60 w-10">#</th>
-              {columns.map((c, i) => (
-                <th key={i} className="px-3 py-1.5 text-left font-medium text-slate-300 whitespace-nowrap border-r border-surface-700/60">
-                  {c}
-                </th>
-              ))}
+              {columns.map((c, i) => {
+                const isLast = i === columns.length - 1
+                return (
+                  <th
+                    key={i}
+                    className={clsx(
+                      'px-3 py-1.5 text-left font-medium text-slate-300 whitespace-nowrap',
+                      isLast ? 'w-full border-r-0' : 'border-r border-surface-700/60'
+                    )}
+                  >
+                    {c}
+                  </th>
+                )
+              })}
             </tr>
           </thead>
           <tbody>
@@ -1455,14 +1464,18 @@ function ResultGrid({ set, index, total, fontSize, onInsertScript, onOpenCell })
               <tr key={r} className={r % 2 === 0 ? 'hover:bg-surface-700/30' : 'bg-surface-800/30 hover:bg-surface-700/30'}>
                 <td className="px-2 py-1 text-right text-slate-600 font-mono border-r border-surface-700/60">{r + 1}</td>
                 {row.map((cell, c) => {
+                  const isLast = c === columns.length - 1
                   // JSON / XML values open in a viewer when clicked.
                   const structured = onOpenCell ? detectType(cell, types[c]) : null
                   return (
                     <td
                       key={c}
-                      className={`px-3 py-1 font-mono whitespace-nowrap border-r border-surface-700/60 align-top ${
-                        sel && sel.r === r && sel.c === c ? 'outline outline-1 -outline-offset-1 outline-brand-light bg-brand-dark/30 ' : ''}${
-                        structured ? 'max-w-[320px] overflow-hidden text-ellipsis text-sky-300 cursor-pointer hover:bg-sky-500/10 underline decoration-dotted underline-offset-2' : 'text-slate-200'}`}
+                      className={clsx(
+                        'px-3 py-1 font-mono whitespace-nowrap align-top',
+                        isLast ? 'border-r-0' : 'border-r border-surface-700/60',
+                        sel && sel.r === r && sel.c === c ? 'outline outline-1 -outline-offset-1 outline-brand-light bg-brand-dark/30 ' : '',
+                        structured ? 'max-w-[320px] overflow-hidden text-ellipsis text-sky-300 cursor-pointer hover:bg-sky-500/10 underline decoration-dotted underline-offset-2' : 'text-slate-200'
+                      )}
                       title={structured ? `Clic para ver como ${structured.toUpperCase()}` : undefined}
                       onClick={() => {
                         setSel({ r, c })

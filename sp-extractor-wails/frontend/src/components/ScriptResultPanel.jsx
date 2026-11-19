@@ -186,15 +186,24 @@ export default function ScriptResultPanel({
                       </div>
 
                       <div className="overflow-auto max-h-[260px]">
-                        <table className="border-collapse text-[11px] w-full font-mono">
+                        <table className="border-collapse text-[11px] min-w-full font-mono">
                           <thead className="sticky top-0 z-10 bg-surface-800 border-b border-surface-600">
                             <tr>
                               <th className="px-2 py-1 text-right text-slate-500 font-normal border-r border-surface-700/60 w-8">#</th>
-                              {columns.map((c, cIdx) => (
-                                <th key={cIdx} className="px-3 py-1 text-left font-medium text-slate-300 whitespace-nowrap border-r border-surface-700/60">
-                                  {c}
-                                </th>
-                              ))}
+                              {columns.map((c, cIdx) => {
+                                const isLast = cIdx === columns.length - 1
+                                return (
+                                  <th
+                                    key={cIdx}
+                                    className={clsx(
+                                      "px-3 py-1 text-left font-medium text-slate-300 whitespace-nowrap",
+                                      isLast ? "w-full border-r-0" : "border-r border-surface-700/60"
+                                    )}
+                                  >
+                                    {c}
+                                  </th>
+                                )
+                              })}
                             </tr>
                           </thead>
                           <tbody>
@@ -214,6 +223,7 @@ export default function ScriptResultPanel({
                                     {rIdx + 1}
                                   </td>
                                   {row.map((cell, cIdx) => {
+                                    const isLast = cIdx === columns.length - 1
                                     const isSel = selectedCell?.s === sIdx && selectedCell?.r === rIdx && selectedCell?.c === cIdx
                                     return (
                                       <td
@@ -223,7 +233,8 @@ export default function ScriptResultPanel({
                                           copy(cellText(cell))
                                         }}
                                         className={clsx(
-                                          'px-3 py-1 font-mono whitespace-nowrap border-r border-surface-700/60 align-top cursor-pointer text-slate-200',
+                                          'px-3 py-1 font-mono whitespace-nowrap align-top cursor-pointer text-slate-200',
+                                          isLast ? 'border-r-0' : 'border-r border-surface-700/60',
                                           isSel && 'bg-brand-dark/40 outline outline-1 -outline-offset-1 outline-sky-400'
                                         )}
                                         title="Clic para copiar valor"

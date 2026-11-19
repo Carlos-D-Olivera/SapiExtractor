@@ -517,20 +517,40 @@ function ResultsView({ sets }) {
             Resultado {i + 1} · {set.rows.length} fila(s){set.truncated ? ' (se muestran las primeras; hay más)' : ''}
           </p>
           <div className="overflow-auto rounded-xl border border-surface-600" style={{ maxHeight: '55vh' }}>
-            <table className="text-xs border-collapse">
+            <table className="text-xs border-collapse min-w-full">
               <thead className="sticky top-0"><tr style={{ background: '#111B2C' }}>
-                {set.columns.map((c, ci) => (
-                  <th key={ci} className="px-3 py-1.5 text-left font-medium text-slate-300 whitespace-nowrap border-r border-surface-700/60">{c}</th>
-                ))}
+                {set.columns.map((c, ci) => {
+                  const isLast = ci === set.columns.length - 1
+                  return (
+                    <th
+                      key={ci}
+                      className={clsx(
+                        "px-3 py-1.5 text-left font-medium text-slate-300 whitespace-nowrap",
+                        isLast ? "w-full border-r-0" : "border-r border-surface-700/60"
+                      )}
+                    >
+                      {c}
+                    </th>
+                  )
+                })}
               </tr></thead>
               <tbody>
                 {set.rows.map((row, r) => (
                   <tr key={r} className={r % 2 ? 'bg-surface-800/30' : ''}>
-                    {row.map((cell, c) => (
-                      <td key={c} className="px-3 py-1 font-mono text-slate-200 whitespace-nowrap border-r border-surface-700/60">
-                        {cell === null ? <span className="text-slate-600 italic">NULL</span> : cell}
-                      </td>
-                    ))}
+                    {row.map((cell, c) => {
+                      const isLast = c === set.columns.length - 1
+                      return (
+                        <td
+                          key={c}
+                          className={clsx(
+                            "px-3 py-1 font-mono text-slate-200 whitespace-nowrap",
+                            isLast ? "border-r-0" : "border-r border-surface-700/60"
+                          )}
+                        >
+                          {cell === null ? <span className="text-slate-600 italic">NULL</span> : cell}
+                        </td>
+                      )
+                    })}
                   </tr>
                 ))}
               </tbody>
