@@ -1,6 +1,6 @@
-import { useState, useMemo, useEffect, useCallback } from 'react'
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import {
-  X, Braces, FileCode2, ChevronRight, ChevronDown, Copy, Check, Search, ChevronsDownUp, ChevronsUpDown, AlertCircle,
+  X, Braces, FileCode2, ChevronRight, ChevronDown, Copy, Check, Search, ChevronsDownUp, ChevronsUpDown, AlertCircle, ChevronUp,
 } from 'lucide-react'
 import clsx from 'clsx'
 import {
@@ -9,6 +9,9 @@ import {
 
 const PAGE = 100 // children rendered per node before "show more"
 const HIGHLIGHT_LIMIT = 500_000 // characters; larger texts are shown without colours
+const MAX_HITS = 2000 // matches marked in the formatted text
+const HIT_CLASS = 'bg-yellow-400/40 text-white rounded-sm'
+const HIT_CURRENT_CLASS = 'bg-orange-500 text-white rounded-sm'
 
 const KIND_STYLE = {
   string: 'text-emerald-300',
@@ -65,6 +68,11 @@ export default function StructuredViewerModal({ value, hint, title, subtitle, on
   const [selected, setSelected] = useState(null)
   const [toast, setToast] = useState('')
   const [expanded, setExpanded] = useState(() => initialExpanded(tree))
+  // Search inside the "Formateado" tab: marks every match and jumps between them.
+  const [prettyQuery, setPrettyQuery] = useState('')
+  const [hitCount, setHitCount] = useState(0)
+  const [cur, setCur] = useState(0)
+  const preRef = useRef(null)
 
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') onClose() }
@@ -122,6 +130,72 @@ export default function StructuredViewerModal({ value, hint, title, subtitle, on
     [pretty, type],
   )
 
+  // Paint the formatted text and wrap each match in <mark>. Matches are found on the joined text,
+  // so one that crosses the colour spans (e.g. NombreCampo="Pulso") is still found.
+  useEffect(() => {
+    const el = preRef.current
+    if (tab !== 'pretty' || !el) return
+    if (highlighted !== null) el.innerHTML = highlighted
+    else el.textContent = pretty
+    const q = prettyQuery.trim().toLowerCase()
+    if (!q) { setHitCount(0); setCur(0); return }
+
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT)
+    const nodes = []
+    let full = ''
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+      nodes.push({ node: n, start: full.length })
+      full += n.nodeValue
+    }
+    const lower = full.toLowerCase()
+    const byNode = new Map()
+    let hit = 0
+    let p = 0
+    for (let i = lower.indexOf(q); i >= 0 && hit < MAX_HITS; i = lower.indexOf(q, i + q.length)) {
+      const end = i + q.length
+      while (p < nodes.length - 1 && nodes[p + 1].start <= i) p++
+      for (let k = p; k < nodes.length && nodes[k].start < end; k++) {
+        const len = nodes[k].node.nodeValue.length
+        const from = Math.max(i, nodes[k].start) - nodes[k].start
+        const to = Math.min(end, nodes[k].start + len) - nodes[k].start
+        if (to > from) {
+          if (!byNode.has(nodes[k].node)) byNode.set(nodes[k].node, [])
+          byNode.get(nodes[k].node).push({ from, to, hit })
+        }
+      }
+      hit++
+    }
+    byNode.forEach((segs, node) => {
+      // Last segment first, so the offsets of the earlier ones stay valid.
+      segs.sort((a, b) => b.from - a.from).forEach(({ from, to, hit: h }) => {
+        const r = document.createRange()
+        r.setStart(node, from)
+        r.setEnd(node, to)
+        const m = document.createElement('mark')
+        m.dataset.hit = String(h)
+        m.className = HIT_CLASS
+        r.surroundContents(m)
+      })
+    })
+    setHitCount(hit)
+    setCur(0)
+  }, [tab, highlighted, pretty, prettyQuery])
+
+  // Highlight the current match and scroll to it.
+  useEffect(() => {
+    const el = preRef.current
+    if (tab !== 'pretty' || !el) return
+    let first = null
+    el.querySelectorAll('mark[data-hit]').forEach(m => {
+      const isCur = m.dataset.hit === String(cur)
+      m.className = isCur ? HIT_CURRENT_CLASS : HIT_CLASS
+      if (isCur && !first) first = m
+    })
+    first?.scrollIntoView({ block: 'center', inline: 'nearest' })
+  }, [cur, hitCount, tab, prettyQuery])
+
+  const stepHit = (dir) => setCur(c => (hitCount ? (c + dir + hitCount) % hitCount : 0))
+
   const Icon = type === 'json' ? Braces : FileCode2
   const tabs = failed ? [['raw', 'Original']] : [['tree', 'Árbol'], ['pretty', 'Formateado'], ['raw', 'Original']]
 
@@ -175,6 +249,28 @@ export default function StructuredViewerModal({ value, hint, title, subtitle, on
             </>
           )}
 
+          {tab === 'pretty' && (
+            <>
+              <div className="relative">
+                <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500" />
+                <input
+                  className="input-field pl-7 py-1 text-xs w-64"
+                  placeholder={type === 'json' ? 'Buscar propiedad o valor…' : 'Buscar propiedad, etiqueta o valor…'}
+                  value={prettyQuery}
+                  onChange={e => setPrettyQuery(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); stepHit(e.shiftKey ? -1 : 1) } }}
+                />
+              </div>
+              {prettyQuery.trim() && (
+                <span className="text-[11px] text-slate-500 tabular-nums">
+                  {hitCount > 0 ? `${cur + 1} de ${hitCount}${hitCount >= MAX_HITS ? '+' : ''}` : 'Sin coincidencias'}
+                </span>
+              )}
+              <button onClick={() => stepHit(-1)} disabled={hitCount === 0} className="btn-secondary text-[11px] py-1 px-2" title="Anterior (Shift+Enter)"><ChevronUp className="w-3.5 h-3.5" /></button>
+              <button onClick={() => stepHit(1)} disabled={hitCount === 0} className="btn-secondary text-[11px] py-1 px-2" title="Siguiente (Enter)"><ChevronDown className="w-3.5 h-3.5" /></button>
+            </>
+          )}
+
           <div className="flex-1" />
           {type === 'json' && !failed && (
             <button onClick={() => copy(minifyJson(parsed.data), 'JSON minificado copiado')} className="btn-secondary text-[11px] py-1 px-2">
@@ -202,9 +298,7 @@ export default function StructuredViewerModal({ value, hint, title, subtitle, on
             </div>
           )}
           {tab === 'pretty' && (
-            highlighted !== null
-              ? <pre className="p-4 text-xs font-mono whitespace-pre text-slate-200" style={{ margin: 0 }} dangerouslySetInnerHTML={{ __html: highlighted }} />
-              : <pre className="p-4 text-xs font-mono whitespace-pre text-slate-200" style={{ margin: 0 }}>{pretty}</pre>
+            <pre ref={preRef} className="p-4 text-xs font-mono whitespace-pre text-slate-200" style={{ margin: 0 }} />
           )}
           {tab === 'raw' && (
             <pre className="p-4 text-xs font-mono whitespace-pre-wrap break-all text-slate-200" style={{ margin: 0 }}>{value}</pre>

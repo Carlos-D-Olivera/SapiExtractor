@@ -1373,6 +1373,14 @@ function summarize(value) {
   return oneLine.length > SUMMARY_CHARS || value.length > SUMMARY_CHARS * 2 ? `${oneLine.slice(0, SUMMARY_CHARS)}…` : oneLine
 }
 
+// Plain values are cut to a fixed width so one long value (a hex signature, a text blob)
+// does not widen its whole column; the full value stays in the tooltip and is what gets copied.
+const MAX_CELL_CHARS = 60
+const TOOLTIP_CHARS = 600
+function clip(value) {
+  return value.length > MAX_CELL_CHARS ? `${value.slice(0, MAX_CELL_CHARS)}…` : value
+}
+
 const cellText = (v) => (v === null || v === undefined ? '' : String(v))
 const MIN_GRID_HEIGHT = 80
 
@@ -1498,7 +1506,11 @@ function ResultGrid({ set, index, total, fontSize, onInsertScript, onOpenCell })
                         sel && sel.r === r && sel.c === c ? 'outline outline-1 -outline-offset-1 outline-brand-light bg-brand-dark/30 ' : '',
                         structured ? 'max-w-[320px] overflow-hidden text-ellipsis text-sky-300 cursor-pointer hover:bg-sky-500/10 underline decoration-dotted underline-offset-2' : 'text-slate-200'
                       )}
-                      title={structured ? `Clic para ver como ${structured.toUpperCase()}` : undefined}
+                      title={structured
+                        ? `Clic para ver como ${structured.toUpperCase()}`
+                        : typeof cell === 'string' && cell.length > MAX_CELL_CHARS
+                        ? `${cell.slice(0, TOOLTIP_CHARS)}${cell.length > TOOLTIP_CHARS ? '…' : ''}`
+                        : undefined}
                       onClick={() => {
                         setSel({ r, c })
                         if (!structured) return
@@ -1517,6 +1529,8 @@ function ResultGrid({ set, index, total, fontSize, onInsertScript, onOpenCell })
                         ? <span className="text-slate-600">(vacío)</span>
                         : structured
                         ? summarize(cell)
+                        : typeof cell === 'string'
+                        ? clip(cell)
                         : cell}
                     </td>
                   )

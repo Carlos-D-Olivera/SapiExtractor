@@ -152,3 +152,19 @@ func TestIsPlainDML(t *testing.T) {
 		}
 	}
 }
+
+func TestValueToStringTypedBinary(t *testing.T) {
+	types := []string{"VARBINARY", "DECIMAL", "IMAGE"}
+	if got := valueToStringTyped([]byte{0xFF, 0xD8, 0x0A}, types, 0); got == nil || *got != "0xFFD80A" {
+		t.Errorf("varbinary = %v, expected 0xFFD80A", got)
+	}
+	if got := valueToStringTyped([]byte("12.50"), types, 1); got == nil || *got != "12.50" {
+		t.Errorf("decimal bytes = %v, expected text", got)
+	}
+	if got := valueToStringTyped([]byte{0x01}, types, 2); got == nil || *got != "0x01" {
+		t.Errorf("image = %v, expected 0x01", got)
+	}
+	if got := valueToStringTyped(nil, types, 0); got != nil {
+		t.Errorf("nil = %v, expected nil", got)
+	}
+}

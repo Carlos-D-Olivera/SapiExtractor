@@ -3,7 +3,7 @@ import {
   Settings,
   Database, RefreshCw, Download,
   Table2, Columns, FunctionSquare, Zap, Eye, Loader2,
-  AlertCircle, FolderOpen, Plug, Terminal, Activity, GitCompare, ListOrdered
+  AlertCircle, FolderOpen, Plug, Terminal, Activity, GitCompare, ListOrdered, PanelLeftClose, PanelLeftOpen,
 } from 'lucide-react'
 import clsx from 'clsx'
 
@@ -122,6 +122,15 @@ export default function WorkspaceView({
   const [debugKey, setDebugKey] = useState(0)
   const [incomingSql, setIncomingSql] = useState(null)
   const [connSeq, setConnSeq] = useState(0)
+  // Left navigation bar: full (icons + names) or compact (icons only, name on hover).
+  const [navCollapsed, setNavCollapsed] = useState(() => {
+    try { return localStorage.getItem('navCollapsed') === '1' } catch { return false }
+  })
+  const toggleNav = () => setNavCollapsed(prev => {
+    const next = !prev
+    try { localStorage.setItem('navCollapsed', next ? '1' : '0') } catch { /* storage unavailable */ }
+    return next
+  })
 
   // Track previous connection to trigger auto-load or clear
   const prevConnRef = useRef(connInfo)
@@ -579,10 +588,23 @@ export default function WorkspaceView({
     <div className={clsx('flex-1 flex overflow-hidden', !isActive && 'hidden')}>
       {/* Sidebar: object types + tools (Consultas, Traza) */}
       <aside
-        className="w-52 flex-shrink-0 border-r border-surface-600 flex flex-col py-3 gap-1 px-2 select-none overflow-y-auto"
+        className={clsx(
+          'flex-shrink-0 border-r border-surface-600 flex flex-col py-3 gap-1 px-2 select-none overflow-y-auto overflow-x-hidden transition-[width] duration-150',
+          navCollapsed ? 'w-14' : 'w-52',
+        )}
         style={{ background: 'rgba(11,16,26,0.8)' }}
       >
-        <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest px-2 mb-1">Object Type</p>
+        <button
+          type="button"
+          onClick={toggleNav}
+          title={navCollapsed ? 'Expandir barra lateral' : 'Minimizar barra lateral'}
+          className={clsx(
+            'flex items-center rounded-lg py-1.5 text-slate-500 hover:text-slate-200 hover:bg-surface-700/40 transition-colors mb-1',
+            navCollapsed ? 'justify-center px-0' : 'gap-2 px-3 text-[10px] font-semibold uppercase tracking-widest',
+          )}
+        >
+          {navCollapsed ? <PanelLeftOpen className="w-4 h-4" /> : <><PanelLeftClose className="w-4 h-4 flex-shrink-0" /><span className="truncate">Object Type</span></>}
+        </button>
         {OBJECT_TYPES.map(({ value, label, icon: Icon }) => (
           <SidebarItem
             key={value}
@@ -590,16 +612,20 @@ export default function WorkspaceView({
             label={label}
             selected={!!connInfo && view === 'objects' && value === objType}
             disabled={!connInfo}
+            collapsed={navCollapsed}
             onClick={() => { setView('objects'); handleTypeChange(value) }}
           />
         ))}
 
         {connInfo && (
           <>
-            <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest px-2 mt-4 mb-1">Herramientas</p>
+            {navCollapsed
+              ? <div className="my-2 border-t border-surface-700/60" />
+              : <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest px-2 mt-4 mb-1">Herramientas</p>}
             <SidebarItem
               icon={Terminal}
               label="Consultas"
+              collapsed={navCollapsed}
               selected={view === 'query'}
               onClick={() => setView('query')}
             />
@@ -608,6 +634,7 @@ export default function WorkspaceView({
               <SidebarItem
                 icon={Activity}
                 label="Traza"
+                collapsed={navCollapsed}
                 selected={view === 'trace'}
                 onClick={() => setView('trace')}
               />
@@ -615,12 +642,14 @@ export default function WorkspaceView({
             <SidebarItem
               icon={GitCompare}
               label="Comparar"
+              collapsed={navCollapsed}
               selected={view === 'compare'}
               onClick={() => setView('compare')}
             />
             <SidebarItem
               icon={ListOrdered}
               label="Scripts"
+              collapsed={navCollapsed}
               selected={view === 'script-runner'}
               onClick={() => setView('script-runner')}
             />
@@ -631,11 +660,14 @@ export default function WorkspaceView({
           <button
             type="button"
             onClick={onOpenSettings}
-            className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-all text-left text-slate-400 hover:text-white hover:bg-surface-700/50 group"
+            className={clsx(
+              'flex items-center rounded-lg py-2 text-xs font-medium transition-all text-left text-slate-400 hover:text-white hover:bg-surface-700/50 group',
+              navCollapsed ? 'justify-center px-0' : 'gap-2.5 px-3',
+            )}
             title="Configuración de la aplicación"
           >
             <Settings className="w-4 h-4 flex-shrink-0 text-slate-400 group-hover:text-brand-light transition-colors" />
-            <span className="truncate">Configuración</span>
+            {!navCollapsed && <span className="truncate">Configuración</span>}
           </button>
         </div>
       </aside>
@@ -894,13 +926,16 @@ export default function WorkspaceView({
 }
 
 // One entry of the left navigation bar.
-function SidebarItem({ icon: Icon, label, selected, disabled, onClick }) {
+function SidebarItem({ icon: Icon, label, selected, disabled, collapsed, onClick }) {
   return (
     <button
       onClick={onClick}
       disabled={disabled}
+      title={collapsed ? label : undefined}
+      aria-label={label}
       className={clsx(
-        'flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-all text-left',
+        'flex items-center rounded-lg py-2 text-sm font-medium transition-all text-left',
+        collapsed ? 'justify-center px-0' : 'gap-2.5 px-3',
         selected
           ? 'text-brand-light border border-brand-dark/50'
           : 'text-slate-400 hover:text-slate-200 hover:bg-surface-700/40',
@@ -909,7 +944,7 @@ function SidebarItem({ icon: Icon, label, selected, disabled, onClick }) {
       style={selected ? { background: 'linear-gradient(135deg, rgba(0,74,119,0.3), rgba(0,119,182,0.15))' } : {}}
     >
       <Icon className="w-4 h-4 flex-shrink-0" />
-      <span className="truncate">{label}</span>
+      {!collapsed && <span className="truncate">{label}</span>}
     </button>
   )
 }
