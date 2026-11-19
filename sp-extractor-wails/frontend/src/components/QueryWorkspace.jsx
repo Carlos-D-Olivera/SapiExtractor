@@ -1125,7 +1125,7 @@ export default function QueryWorkspace({
   )
 }
 
-function ResultArea({
+export function ResultArea({
   tab,
   fontSize,
   changeResultsFontSize,
@@ -1154,7 +1154,9 @@ function ResultArea({
     )
   }
 
-  const { sets = [], message = '', durationMs = 0, messages = [] } = tab.result || {}
+  const { message = '', durationMs = 0 } = tab.result || {}
+  const sets = tab.result?.sets ?? []
+  const messages = tab.result?.messages ?? []
   const activeTab = tab.activeResultTab || (sets.length > 0 ? 'results' : 'messages')
 
   const handleCopyMessages = () => {
