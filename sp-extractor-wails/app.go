@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/hex"
 	"context"
 	"database/sql"
 	"errors"
@@ -514,7 +515,7 @@ func runBatch(ctx context.Context, conn *sql.DB, sqlText string, maxRows int, re
 					}
 					row := make([]*string, len(cols))
 					for i, v := range vals {
-						row[i] = valueToString(v)
+						row[i] = valueToStringTyped(v, set.Types, i)
 					}
 					set.Rows = append(set.Rows, row)
 				}
@@ -550,7 +551,7 @@ func runBatch(ctx context.Context, conn *sql.DB, sqlText string, maxRows int, re
 				}
 				row := make([]*string, len(cols))
 				for i, v := range vals {
-					row[i] = valueToString(v)
+					row[i] = valueToStringTyped(v, set.Types, i)
 				}
 				set.Rows = append(set.Rows, row)
 			}
@@ -618,6 +619,23 @@ func columnTypeNames(rows *sql.Rows) []string {
 		names[i] = ct.DatabaseTypeName()
 	}
 	return names
+}
+
+// isBinaryType reports whether a column's database type holds raw bytes
+// (BINARY, VARBINARY, IMAGE, BLOB, BYTEA...). The drivers also return []byte for
+// decimals, GUIDs and text, so only these types are shown as hexadecimal.
+func isBinaryType(typeName string) bool {
+	t := strings.ToUpper(typeName)
+	return strings.Contains(t, "BINARY") || strings.Contains(t, "BLOB") || t == "IMAGE" || t == "BYTEA" || t == "ROWVERSION"
+}
+
+// valueToStringTyped is valueToString, but binary columns are rendered as 0x… hex like SSMS does.
+func valueToStringTyped(v any, types []string, i int) *string {
+	if b, ok := v.([]byte); ok && i < len(types) && isBinaryType(types[i]) {
+		s := "0x" + strings.ToUpper(hex.EncodeToString(b))
+		return &s
+	}
+	return valueToString(v)
 }
 
 func valueToString(v any) *string {

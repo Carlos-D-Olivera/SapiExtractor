@@ -121,6 +121,12 @@ func valueLiteral(t db.DatabaseType, v *string, typ string, detect bool) string 
 	if v == nil {
 		return "NULL"
 	}
+	if isBinaryType(typ) && strings.HasPrefix(*v, "0x") {
+		if t == db.PostgreSQL {
+			return `'\x` + (*v)[2:] + `'`
+		}
+		return *v // SQL Server and MySQL accept 0x… hexadecimal literals as they are
+	}
 	if detect {
 		switch {
 		case isBoolType(t, typ):
@@ -130,6 +136,11 @@ func valueLiteral(t db.DatabaseType, v *string, typ string, detect bool) string 
 		}
 	}
 	return textLiteral(t, *v)
+}
+
+func isBinaryType(typ string) bool {
+	b := baseType(typ)
+	return strings.Contains(b, "BINARY") || strings.Contains(b, "BLOB") || b == "IMAGE" || b == "BYTEA" || b == "ROWVERSION"
 }
 
 func isNumericType(typ string) bool {

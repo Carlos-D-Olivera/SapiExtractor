@@ -136,3 +136,13 @@ func TestInsertValidation(t *testing.T) {
 		t.Error("expected error for row/column mismatch")
 	}
 }
+
+func TestValueLiteralBinary(t *testing.T) {
+	v := "0xFFD8"
+	if got := valueLiteral(db.SQLServer, &v, "VARBINARY", true); got != "0xFFD8" {
+		t.Errorf("sqlserver = %q", got)
+	}
+	if got := valueLiteral(db.PostgreSQL, &v, "BYTEA", true); got != `'\xFFD8'` {
+		t.Errorf("postgres = %q", got)
+	}
+}
