@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import {
   X, Sliders, Code2, Sparkles, History, FolderOutput,
   Save, Check, RotateCcw, Plus, Trash2, CheckSquare, Square,
-  FolderOpen, AlertTriangle, Monitor, Database
+  FolderOpen, AlertTriangle, Monitor, Database, Palette
 } from 'lucide-react'
 import clsx from 'clsx'
 import {
@@ -10,6 +10,9 @@ import {
   loadStoredAutocompletes,
   saveStoredAutocompletes
 } from './AutocompletesModal'
+import { UI_THEMES, applyAppTheme, getSavedAppTheme } from '../utils/uiThemes'
+import { EDITOR_THEMES, EDITOR_FONTS } from '../utils/editorThemes'
+import ReadOnlySqlViewer from './ReadOnlySqlViewer'
 
 let goApp = null
 async function go() {
@@ -44,6 +47,11 @@ export default function SettingsModal({
     retentionDays: 90,
     maxEntries: 5000,
     editorFontSize: 12,
+    editorFontFamily: 'Consolas',
+    editorTheme: 'one-dark',
+    editorShowIndent: true,
+    editorShowFolding: true,
+    appTheme: 'dark-blue',
     defaultRowLimit: 100,
     defaultOutDir: '',
     includeDropHeader: true,
@@ -75,12 +83,17 @@ export default function SettingsModal({
         if (cancelled) return
 
         if (st) {
-          // If localStorage has an existing font size, prefer it or sync it
           let localFontSize = 12
           try {
             const stored = localStorage.getItem('sp_extractor_query_font_size')
             if (stored && Number(stored)) localFontSize = Number(stored)
           } catch { /* ignore */ }
+
+          const localAppTheme = localStorage.getItem('sp_extractor_app_theme') || st.appTheme || 'dark-blue'
+          const localEditorTheme = localStorage.getItem('sp_extractor_editor_theme') || st.editorTheme || 'one-dark'
+          const localFontFamily = localStorage.getItem('sp_extractor_editor_font_family') || st.editorFontFamily || 'Consolas'
+          const localShowIndent = st.editorShowIndent !== undefined ? Boolean(st.editorShowIndent) : localStorage.getItem('sp_extractor_editor_show_indent') !== 'false'
+          const localShowFolding = st.editorShowFolding !== undefined ? Boolean(st.editorShowFolding) : localStorage.getItem('sp_extractor_editor_show_folding') !== 'false'
 
           setSettings({
             autoRestore: Boolean(st.autoRestore),
@@ -88,6 +101,11 @@ export default function SettingsModal({
             retentionDays: st.retentionDays || 90,
             maxEntries: st.maxEntries || 5000,
             editorFontSize: st.editorFontSize || localFontSize || 12,
+            editorFontFamily: localFontFamily,
+            editorTheme: localEditorTheme,
+            editorShowIndent: localShowIndent,
+            editorShowFolding: localShowFolding,
+            appTheme: localAppTheme,
             defaultRowLimit: st.defaultRowLimit !== undefined ? st.defaultRowLimit : 100,
             defaultOutDir: st.defaultOutDir || '',
             includeDropHeader: st.includeDropHeader !== false,
@@ -124,13 +142,29 @@ export default function SettingsModal({
       const merged = { ...current, ...newSettings }
       await api.SetPersistenceSettings(merged)
 
-      // Sync local storage for editor
+      // Sync local storage & live effects
       try {
         if (newSettings.editorFontSize) {
           localStorage.setItem('sp_extractor_query_font_size', String(newSettings.editorFontSize))
         }
         if (newSettings.defaultRowLimit !== undefined) {
           localStorage.setItem('sp_extractor_default_row_limit', String(newSettings.defaultRowLimit))
+        }
+        if (newSettings.appTheme) {
+          localStorage.setItem('sp_extractor_app_theme', newSettings.appTheme)
+          applyAppTheme(newSettings.appTheme)
+        }
+        if (newSettings.editorTheme) {
+          localStorage.setItem('sp_extractor_editor_theme', newSettings.editorTheme)
+        }
+        if (newSettings.editorFontFamily) {
+          localStorage.setItem('sp_extractor_editor_font_family', newSettings.editorFontFamily)
+        }
+        if (newSettings.editorShowIndent !== undefined) {
+          localStorage.setItem('sp_extractor_editor_show_indent', String(newSettings.editorShowIndent))
+        }
+        if (newSettings.editorShowFolding !== undefined) {
+          localStorage.setItem('sp_extractor_editor_show_folding', String(newSettings.editorShowFolding))
         }
       } catch { /* ignore */ }
 
@@ -249,7 +283,8 @@ export default function SettingsModal({
 
   const tabs = [
     { id: 'general', label: 'General', icon: Sliders },
-    { id: 'editor', label: 'Editor SQL', icon: Code2 },
+    { id: 'app-theme', label: 'Temas de la App', icon: Palette },
+    { id: 'editor', label: 'Editor y Fuente', icon: Code2 },
     { id: 'autocompletes', label: 'AutoCompletes', icon: Sparkles, badge: autocompletes.length },
     { id: 'history', label: 'Historial', icon: History },
     { id: 'export', label: 'Exportación', icon: FolderOutput },
@@ -258,8 +293,7 @@ export default function SettingsModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-fade-in">
       <div
-        className="w-full max-w-4xl h-[650px] max-h-[92vh] flex flex-col rounded-2xl border border-surface-600 shadow-2xl overflow-hidden glass animate-slide-up"
-        style={{ background: '#0D1520' }}
+        className="w-full max-w-4xl h-[680px] max-h-[92vh] flex flex-col rounded-2xl border border-surface-600 shadow-2xl overflow-hidden glass animate-slide-up bg-surface-900"
       >
         {/* Modal Header */}
         <div className="flex items-center justify-between px-6 py-3.5 border-b border-surface-600/70 bg-surface-900/60">
@@ -375,80 +409,247 @@ export default function SettingsModal({
                   </div>
                 )}
 
-                {/* 2. EDITOR SQL */}
-                {activeTab === 'editor' && (
-                  <div className="space-y-6 max-w-2xl">
+                {/* 2. TEMAS DE LA APP (PROGRAMA COMPLETO) */}
+                {activeTab === 'app-theme' && (
+                  <div className="space-y-6 max-w-3xl">
                     <div>
-                      <h3 className="text-sm font-semibold text-white mb-1">Editor SQL</h3>
-                      <p className="text-xs text-slate-400">Ajusta la apariencia y parámetros de ejecución del editor de consultas.</p>
+                      <h3 className="text-sm font-semibold text-white mb-1">Temas de Color del Programa</h3>
+                      <p className="text-xs text-slate-400">
+                        Selecciona el esquema de colores para toda la interfaz (ventanas, botones, paneles y barras de herramientas).
+                      </p>
                     </div>
 
-                    {/* Font Size */}
-                    <div className="p-4 rounded-xl glass border border-surface-600/60 space-y-4">
-                      <div>
-                        <div className="flex items-center justify-between mb-2">
-                          <label className="text-xs font-medium text-slate-200">
-                            Tamaño de fuente del editor
-                          </label>
-                          <div className="flex items-center gap-2">
-                            <button
-                              onClick={() => updateSetting('editorFontSize', Math.max(9, settings.editorFontSize - 1))}
-                              className="px-2 py-1 rounded bg-surface-800 border border-surface-600 text-slate-300 hover:text-white text-xs font-bold"
-                              title="Reducir fuente"
-                            >
-                              -
-                            </button>
-                            <span className="font-mono text-xs font-bold text-amber-300 min-w-[36px] text-center">
-                              {settings.editorFontSize} px
-                            </span>
-                            <button
-                              onClick={() => updateSetting('editorFontSize', Math.min(32, settings.editorFontSize + 1))}
-                              className="px-2 py-1 rounded bg-surface-800 border border-surface-600 text-slate-300 hover:text-white text-xs font-bold"
-                              title="Aumentar fuente"
-                            >
-                              +
-                            </button>
-                            {settings.editorFontSize !== 12 && (
-                              <button
-                                onClick={() => updateSetting('editorFontSize', 12)}
-                                className="text-[11px] text-slate-400 hover:text-slate-200 underline ml-2"
-                              >
-                                Restablecer (12px)
-                              </button>
+                    <div className="grid grid-cols-2 gap-3.5">
+                      {UI_THEMES.map((theme) => {
+                        const isSelected = settings.appTheme === theme.id
+                        return (
+                          <button
+                            key={theme.id}
+                            type="button"
+                            onClick={() => updateSetting('appTheme', theme.id)}
+                            className={clsx(
+                              'p-3.5 rounded-xl border text-left transition-all relative flex flex-col gap-2.5 group cursor-pointer',
+                              isSelected
+                                ? 'border-brand-glow bg-brand-dark/25 shadow-lg shadow-brand/20 ring-1 ring-brand-glow'
+                                : 'border-surface-600/70 bg-surface-950/40 hover:border-surface-500 hover:bg-surface-800/40'
                             )}
-                          </div>
-                        </div>
+                          >
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs font-bold text-white group-hover:text-brand-light transition-colors">
+                                {theme.name}
+                              </span>
+                              {isSelected && (
+                                <span className="flex items-center gap-1 text-[11px] font-semibold text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-2 py-0.5 rounded-full">
+                                  <Check className="w-3 h-3" /> Activo
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-[11px] text-slate-400 leading-relaxed">
+                              {theme.description}
+                            </p>
+                            {/* Color swatches preview */}
+                            <div className="flex items-center gap-1.5 pt-1">
+                              <div className="flex-1 h-3.5 rounded border border-white/10" style={{ background: theme.preview.bg }} title="Fondo general" />
+                              <div className="flex-1 h-3.5 rounded border border-white/10" style={{ background: theme.preview.surface }} title="Superficie / Paneles" />
+                              <div className="flex-1 h-3.5 rounded border border-white/10" style={{ background: theme.preview.accent }} title="Acento principal" />
+                              <div className="flex-1 h-3.5 rounded border border-white/10" style={{ background: theme.preview.light }} title="Texto y resalte" />
+                            </div>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
 
-                        <input
-                          type="range"
-                          min={9}
-                          max={32}
-                          value={settings.editorFontSize}
-                          onChange={(e) => updateSetting('editorFontSize', Number(e.target.value))}
-                          className="w-full accent-brand h-1.5 bg-surface-700 rounded-lg cursor-pointer"
-                        />
-                        <p className="text-[11px] text-slate-400 mt-2">
-                          También puedes cambiar el tamaño dinámicamente en el editor manteniendo <kbd className="px-1.5 py-0.5 rounded bg-surface-800 text-slate-300 font-mono text-[10px] border border-surface-600">Ctrl + Rueda del ratón</kbd> o <kbd className="px-1.5 py-0.5 rounded bg-surface-800 text-slate-300 font-mono text-[10px] border border-surface-600">Ctrl + / -</kbd>.
-                        </p>
+                {/* 3. EDITOR SQL: COLORES Y FUENTE */}
+                {activeTab === 'editor' && (
+                  <div className="space-y-6 max-w-3xl">
+                    <div>
+                      <h3 className="text-sm font-semibold text-white mb-1">Colores y Tipografía del Editor SQL</h3>
+                      <p className="text-xs text-slate-400">
+                        Personaliza los temas sintácticos, tipografía y ayudas visuales para consultas y visores.
+                      </p>
+                    </div>
+
+                    {/* 1. Syntax Themes Grid */}
+                    <div className="p-4 rounded-xl glass border border-surface-600/60 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <label className="text-xs font-semibold text-white">
+                          Tema de Color del Editor (Resaltado de Sintaxis)
+                        </label>
+                        <span className="text-[11px] font-mono text-amber-300 font-medium">
+                          {EDITOR_THEMES.find(t => t.id === settings.editorTheme)?.name || 'One Dark'}
+                        </span>
                       </div>
 
-                      {/* Live preview */}
+                      <div className="grid grid-cols-3 gap-2.5">
+                        {EDITOR_THEMES.map((th) => {
+                          const isSelected = settings.editorTheme === th.id
+                          return (
+                            <button
+                              key={th.id}
+                              type="button"
+                              onClick={() => updateSetting('editorTheme', th.id)}
+                              className={clsx(
+                                'p-2.5 rounded-lg border text-left transition-all relative flex flex-col gap-1.5 cursor-pointer',
+                                isSelected
+                                  ? 'border-brand-glow bg-brand-dark/30 shadow-md ring-1 ring-brand-glow'
+                                  : 'border-surface-600/60 bg-surface-950/60 hover:border-surface-500 hover:bg-surface-800/40'
+                              )}
+                            >
+                              <div className="flex items-center justify-between">
+                                <span className="text-xs font-bold text-slate-200 truncate">
+                                  {th.name}
+                                </span>
+                                {isSelected && <Check className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />}
+                              </div>
+                              <p className="text-[10px] text-slate-400 truncate">
+                                {th.description}
+                              </p>
+                              {/* Palette swatches */}
+                              <div className="flex items-center gap-1.5 pt-0.5">
+                                <span className="w-2.5 h-2.5 rounded-full border border-white/20" style={{ background: th.bg }} title="Fondo" />
+                                <span className="w-2.5 h-2.5 rounded-full" style={{ background: th.colors.keyword }} title="Palabra clave" />
+                                <span className="w-2.5 h-2.5 rounded-full" style={{ background: th.colors.string }} title="Cadena" />
+                                <span className="w-2.5 h-2.5 rounded-full" style={{ background: th.colors.number }} title="Número" />
+                                <span className="w-2.5 h-2.5 rounded-full" style={{ background: th.colors.comment }} title="Comentario" />
+                              </div>
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
+
+                    {/* 2. Font Family & Font Size */}
+                    <div className="p-4 rounded-xl glass border border-surface-600/60 space-y-4">
+                      <div className="grid grid-cols-2 gap-4">
+                        {/* Font Family */}
+                        <div>
+                          <label className="text-xs font-semibold text-white block mb-1.5">
+                            Tipografía / Familia de fuente
+                          </label>
+                          <select
+                            value={settings.editorFontFamily}
+                            onChange={(e) => updateSetting('editorFontFamily', e.target.value)}
+                            className="input-field py-1.5 px-3 text-xs w-full bg-surface-800 text-slate-200"
+                          >
+                            {EDITOR_FONTS.map(f => (
+                              <option key={f.id} value={f.id}>
+                                {f.name}
+                              </option>
+                            ))}
+                          </select>
+                          <p className="text-[10px] text-slate-400 mt-1">
+                            Familia monoespaciada utilizada en el editor y visores de objetos.
+                          </p>
+                        </div>
+
+                        {/* Font Size */}
+                        <div>
+                          <div className="flex items-center justify-between mb-1.5">
+                            <label className="text-xs font-semibold text-white">
+                              Tamaño de fuente
+                            </label>
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => updateSetting('editorFontSize', Math.max(9, settings.editorFontSize - 1))}
+                                className="px-2 py-0.5 rounded bg-surface-800 border border-surface-600 text-slate-300 hover:text-white text-xs font-bold"
+                              >
+                                -
+                              </button>
+                              <span className="font-mono text-xs font-bold text-amber-300 min-w-[36px] text-center">
+                                {settings.editorFontSize} px
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => updateSetting('editorFontSize', Math.min(32, settings.editorFontSize + 1))}
+                                className="px-2 py-0.5 rounded bg-surface-800 border border-surface-600 text-slate-300 hover:text-white text-xs font-bold"
+                              >
+                                +
+                              </button>
+                            </div>
+                          </div>
+                          <input
+                            type="range"
+                            min={9}
+                            max={32}
+                            value={settings.editorFontSize}
+                            onChange={(e) => updateSetting('editorFontSize', Number(e.target.value))}
+                            className="w-full accent-brand h-1.5 bg-surface-700 rounded-lg cursor-pointer mt-2"
+                          />
+                        </div>
+                      </div>
+
+                      {/* 3. Visual Aids (SSMS Style Indent & Folding) */}
+                      <div className="border-t border-surface-700/60 pt-3 grid grid-cols-2 gap-4">
+                        <div className="flex items-center justify-between gap-2 p-2.5 rounded-lg bg-surface-950/40 border border-surface-800">
+                          <div>
+                            <label className="text-xs font-medium text-slate-200 block cursor-pointer">
+                              Líneas de indentación (SSMS)
+                            </label>
+                            <p className="text-[10px] text-slate-400">Guías perpendiculares que unen bloques indentados.</p>
+                          </div>
+                          <input
+                            type="checkbox"
+                            checked={settings.editorShowIndent}
+                            onChange={(e) => updateSetting('editorShowIndent', e.target.checked)}
+                            className="w-4 h-4 rounded text-brand border-surface-600 focus:ring-0 cursor-pointer"
+                          />
+                        </div>
+
+                        <div className="flex items-center justify-between gap-2 p-2.5 rounded-lg bg-surface-950/40 border border-surface-800">
+                          <div>
+                            <label className="text-xs font-medium text-slate-200 block cursor-pointer">
+                              Marcadores de plegado (▾ / ▸)
+                            </label>
+                            <p className="text-[10px] text-slate-400">Permite ocultar/expandir bloques IF, BEGIN/END.</p>
+                          </div>
+                          <input
+                            type="checkbox"
+                            checked={settings.editorShowFolding}
+                            onChange={(e) => updateSetting('editorShowFolding', e.target.checked)}
+                            className="w-4 h-4 rounded text-brand border-surface-600 focus:ring-0 cursor-pointer"
+                          />
+                        </div>
+                      </div>
+
+                      {/* 4. Live CodeMirror Preview */}
                       <div className="pt-2 border-t border-surface-700/60">
-                        <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest mb-1.5">
-                          Vista previa del editor
-                        </p>
+                        <div className="flex items-center justify-between mb-2">
+                          <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest">
+                            Vista previa interactiva del editor
+                          </p>
+                          <span className="text-[10px] text-slate-500">
+                            {settings.editorFontFamily} • {settings.editorFontSize}px • {settings.editorTheme}
+                          </span>
+                        </div>
                         <div
-                          className="p-3 rounded-lg bg-surface-950 font-mono border border-surface-800 text-slate-300 overflow-x-auto select-none"
-                          style={{ fontSize: `${settings.editorFontSize}px`, lineHeight: 1.5 }}
+                          className="rounded-xl border border-surface-700/80 overflow-hidden shadow-inner"
+                          style={{ height: 180 }}
                         >
-                          <span className="text-blue-400">SELECT</span> id, nombre, fecha <br />
-                          <span className="text-blue-400">FROM</span> dbo.admUsuarios <br />
-                          <span className="text-blue-400">WHERE</span> activo = <span className="text-amber-400">1</span>;
+                          <ReadOnlySqlViewer
+                            content={`-- Vista previa en tiempo real
+IF @activo = 1
+BEGIN
+    SELECT u.id, u.nombre, r.nombreRol, u.fechaAlta
+    FROM dbo.admUsuarios u
+    INNER JOIN dbo.admRoles r ON r.id = u.idRol
+    WHERE u.activo = 1
+    ORDER BY u.nombre ASC;
+END`}
+                            dbType="SQL_SERVER"
+                            fontSize={settings.editorFontSize}
+                            fontFamily={settings.editorFontFamily}
+                            editorTheme={settings.editorTheme}
+                            showIndent={settings.editorShowIndent}
+                            showFolding={settings.editorShowFolding}
+                          />
                         </div>
                       </div>
                     </div>
 
-                    {/* Default Row Limit */}
+                    {/* 5. Default Row Limit */}
                     <div className="p-4 rounded-xl glass border border-surface-600/60 space-y-2">
                       <div className="flex items-center justify-between">
                         <label className="text-xs font-medium text-slate-200">

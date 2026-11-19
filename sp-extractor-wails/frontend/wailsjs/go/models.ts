@@ -1251,6 +1251,11 @@ export namespace store {
 	    editorFontSize: number;
 	    defaultOutDir: string;
 	    includeDropHeader: boolean;
+	    appTheme?: string;
+	    editorTheme?: string;
+	    editorFontFamily?: string;
+	    editorShowIndent: boolean;
+	    editorShowFolding: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new Settings(source);
@@ -1268,6 +1273,11 @@ export namespace store {
 	        this.editorFontSize = source["editorFontSize"];
 	        this.defaultOutDir = source["defaultOutDir"];
 	        this.includeDropHeader = source["includeDropHeader"];
+	        this.appTheme = source["appTheme"];
+	        this.editorTheme = source["editorTheme"];
+	        this.editorFontFamily = source["editorFontFamily"];
+	        this.editorShowIndent = source["editorShowIndent"];
+	        this.editorShowFolding = source["editorShowFolding"];
 	    }
 	}
 

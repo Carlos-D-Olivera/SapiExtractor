@@ -839,6 +839,7 @@ export default function WorkspaceView({
                     <PreviewPanel
                       workspaceId={workspaceId}
                       obj={previewObj}
+                      dbType={connInfo?.dbType || 'SQL_SERVER'}
                       typeLabel={OBJECT_TYPES.find(t => t.value === objType)?.label || objType}
                       definition={previewDef}
                       loading={previewLoading}
