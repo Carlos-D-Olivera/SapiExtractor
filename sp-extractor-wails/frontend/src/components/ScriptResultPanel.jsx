@@ -142,6 +142,22 @@ export default function ScriptResultPanel({
               </span>
             </div>
 
+            {/* PRINT / RAISERROR messages */}
+            {(response?.messages || []).length > 0 && (
+              <div className="rounded-lg border border-surface-600/70 overflow-auto bg-surface-900/40" style={{ maxHeight: '25vh' }}>
+                <div className="px-3 py-1 border-b border-surface-700/60 text-[10px] text-slate-500 font-medium uppercase tracking-wide select-none">
+                  Mensajes
+                </div>
+                <pre className="px-3 py-2 text-xs font-mono whitespace-pre-wrap leading-relaxed m-0">
+                  {(response.messages).map((msg, i) => (
+                    <span key={i} className={msg.kind === 'error' ? 'text-red-400' : 'text-slate-300'}>
+                      {msg.text}{'\n'}
+                    </span>
+                  ))}
+                </pre>
+              </div>
+            )}
+
             {/* If there are tabular result sets */}
             {sets.length > 0 ? (
               <div className="space-y-4">

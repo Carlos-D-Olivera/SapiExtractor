@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -12,6 +13,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/golang-sql/sqlexp"
+	mssql "github.com/microsoft/go-mssqldb"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 
 	"sp-extractor-wails/pkg/config"
@@ -365,12 +368,22 @@ type ResultSet struct {
 	Truncated bool        `json:"truncated"`
 }
 
+// PrintMessage is a PRINT / RAISERROR informational notice captured during execution.
+type PrintMessage struct {
+	Kind   string `json:"kind"`   // "info" | "error"
+	Text   string `json:"text"`
+	Number int32  `json:"number"`
+	Line   int32  `json:"line"`
+	Proc   string `json:"proc"`
+}
+
 // QueryResponse is the outcome of executing one or more SQL statements.
 type QueryResponse struct {
-	Sets       []ResultSet `json:"sets"`
-	Message    string      `json:"message"`
-	DurationMs int64       `json:"durationMs"`
-	RowCount   int         `json:"rowCount"`
+	Sets       []ResultSet    `json:"sets"`
+	Messages   []PrintMessage `json:"messages"`
+	Message    string         `json:"message"`
+	DurationMs int64          `json:"durationMs"`
+	RowCount   int            `json:"rowCount"`
 }
 
 // ExecuteQuery runs an arbitrary SQL statement/script against the workspace connection.
@@ -443,6 +456,8 @@ func (a *App) executeQuery(wsID, sqlText string, maxRows int) (QueryResponse, er
 
 // runBatch executes one batch and appends any result sets to resp. For a plain
 // INSERT/UPDATE/DELETE/MERGE it uses Exec and returns the rows affected.
+// PRINT / RAISERROR messages are captured via sqlexp.ReturnMessage when the
+// driver supports it (go-mssqldb does; others fall back to plain QueryContext).
 func runBatch(ctx context.Context, conn *sql.DB, sqlText string, maxRows int, resp *QueryResponse) (affected int64, isDML bool, err error) {
 	if isPlainDML(sqlText) {
 		res, err := conn.ExecContext(ctx, sqlText)
@@ -456,12 +471,63 @@ func runBatch(ctx context.Context, conn *sql.DB, sqlText string, maxRows int, re
 		return n, true, nil
 	}
 
-	rows, err := conn.QueryContext(ctx, sqlText)
+	msgs := &sqlexp.ReturnMessage{}
+	rows, err := conn.QueryContext(ctx, sqlText, msgs)
 	if err != nil {
-		return 0, false, err
+		// If the driver doesn't support ReturnMessage, fall back gracefully.
+		rows, err = conn.QueryContext(ctx, sqlText)
+		if err != nil {
+			return 0, false, err
+		}
+		msgs = nil
 	}
 	defer rows.Close()
 
+	if msgs != nil {
+		// Message-loop mode: process PRINT/RAISERROR notices alongside result sets.
+		for active := true; active; {
+			switch m := msgs.Message(ctx).(type) {
+			case sqlexp.MsgNotice:
+				resp.Messages = append(resp.Messages, printNotice(m.Message))
+			case sqlexp.MsgError:
+				resp.Messages = append(resp.Messages, printError(m.Error))
+				rows.Close()
+				return 0, false, m.Error
+			case sqlexp.MsgNext:
+				cols, err := rows.Columns()
+				if err != nil {
+					continue
+				}
+				set := ResultSet{Columns: cols, Types: columnTypeNames(rows), Rows: [][]*string{}}
+				for rows.Next() {
+					vals := make([]any, len(cols))
+					ptrs := make([]any, len(cols))
+					for i := range vals {
+						ptrs[i] = &vals[i]
+					}
+					if err := rows.Scan(ptrs...); err != nil {
+						break
+					}
+					if maxRows > 0 && len(set.Rows) >= maxRows {
+						set.Truncated = true
+						continue // drain so the stream advances
+					}
+					row := make([]*string, len(cols))
+					for i, v := range vals {
+						row[i] = valueToString(v)
+					}
+					set.Rows = append(set.Rows, row)
+				}
+				resp.Sets = append(resp.Sets, set)
+				resp.RowCount += len(set.Rows)
+			case sqlexp.MsgNextResultSet:
+				active = rows.NextResultSet()
+			}
+		}
+		return 0, false, nil
+	}
+
+	// Fallback path for drivers that don't support ReturnMessage.
 	for {
 		cols, err := rows.Columns()
 		if err != nil {
@@ -499,6 +565,23 @@ func runBatch(ctx context.Context, conn *sql.DB, sqlText string, maxRows int, re
 		}
 	}
 	return 0, false, nil
+}
+
+func printNotice(s fmt.Stringer) PrintMessage {
+	m := PrintMessage{Kind: "info", Text: s.String()}
+	if e, ok := s.(mssql.Error); ok {
+		m.Number, m.Line, m.Proc = e.Number, e.LineNo, e.ProcName
+	}
+	return m
+}
+
+func printError(err error) PrintMessage {
+	m := PrintMessage{Kind: "error", Text: err.Error()}
+	var me mssql.Error
+	if errors.As(err, &me) {
+		m.Text, m.Number, m.Line, m.Proc = me.Message, me.Number, me.LineNo, me.ProcName
+	}
+	return m
 }
 
 var (

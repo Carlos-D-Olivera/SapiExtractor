@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
-import { Play, Plus, X, Loader2, AlertCircle, Ban, Clock, Table2, Trash2, Sparkles, FileCode2, Check, History, RotateCcw, Save } from 'lucide-react'
+import { Play, Plus, X, Loader2, AlertCircle, Ban, Clock, Table2, Trash2, Sparkles, FileCode2, Check, History, RotateCcw, Save, MessageSquare } from 'lucide-react'
 import clsx from 'clsx'
 import SqlEditor, { getIdentifierAtCursor, stripQuotes } from './SqlEditor'
 import { getStoredAutocompletes, loadStoredAutocompletes } from './AutocompletesModal'
@@ -1076,7 +1076,7 @@ function ResultArea({ tab, fontSize, onInsertScript, onOpenCell }) {
     )
   }
 
-  const { sets = [], message = '', durationMs = 0 } = tab.result
+  const { sets = [], message = '', durationMs = 0, messages = [] } = tab.result
 
   return (
     <div className="flex flex-col h-full gap-2 overflow-auto">
@@ -1084,6 +1084,24 @@ function ResultArea({ tab, fontSize, onInsertScript, onOpenCell }) {
         <span>{message}</span>
         <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{durationMs} ms</span>
       </div>
+      {messages.length > 0 && (
+        <div className="flex-shrink-0 rounded-lg border border-surface-600 overflow-auto"
+             style={{ background: '#0d1420', maxHeight: '30vh' }}>
+          <div className="px-3 py-1.5 border-b border-surface-700/60 text-[10px] text-slate-500 font-medium uppercase tracking-wide select-none">
+            Mensajes
+          </div>
+          <pre className="px-3 py-2 text-xs font-mono whitespace-pre-wrap leading-relaxed m-0">
+            {messages.map((msg, i) => (
+              <span
+                key={i}
+                className={msg.kind === 'error' ? 'text-red-400' : 'text-slate-300'}
+              >
+                {msg.text}{'\n'}
+              </span>
+            ))}
+          </pre>
+        </div>
+      )}
       {sets.map((set, i) => (
         <ResultGrid key={i} set={set} index={i} total={sets.length} fontSize={fontSize} onInsertScript={onInsertScript} onOpenCell={onOpenCell} />
       ))}
