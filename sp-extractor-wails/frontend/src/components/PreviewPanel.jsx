@@ -1,12 +1,44 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { ArrowLeft, RefreshCw, Copy, Save, ExternalLink, Loader2, AlertCircle, Check, Pencil, Bug } from 'lucide-react'
 import clsx from 'clsx'
+import ReadOnlySqlViewer from './ReadOnlySqlViewer'
 
-export default function PreviewPanel({ workspaceId = '1', obj, typeLabel, definition, loading, error, onRefresh, onBack, onEdit, onDebug }) {
+export default function PreviewPanel({
+  workspaceId = '1',
+  obj,
+  typeLabel,
+  definition,
+  loading,
+  error,
+  onRefresh,
+  onBack,
+  onEdit,
+  onDebug,
+  dbType = 'SQL_SERVER',
+  editorTheme,
+  fontSize,
+  fontFamily,
+}) {
   const [copied, setCopied] = useState(false)
   const [actionError, setActionError] = useState('')
   const [busy, setBusy] = useState('') // 'copy' | 'save' | 'open'
   const [saveFeedback, setSaveFeedback] = useState('')
+
+  const [currentTheme, setCurrentTheme] = useState(() => editorTheme || localStorage.getItem('sp_extractor_editor_theme') || 'one-dark')
+  const [currentFont, setCurrentFont] = useState(() => fontFamily || localStorage.getItem('sp_extractor_editor_font_family') || 'Consolas')
+  const [currentSize, setCurrentSize] = useState(() => fontSize || Number(localStorage.getItem('sp_extractor_query_font_size')) || 12)
+
+  useEffect(() => {
+    const handleUpdate = (e) => {
+      if (e.detail) {
+        if (e.detail.editorTheme) setCurrentTheme(e.detail.editorTheme)
+        if (e.detail.editorFontFamily) setCurrentFont(e.detail.editorFontFamily)
+        if (e.detail.editorFontSize) setCurrentSize(e.detail.editorFontSize)
+      }
+    }
+    window.addEventListener('spextractor:settings-updated', handleUpdate)
+    return () => window.removeEventListener('spextractor:settings-updated', handleUpdate)
+  }, [])
 
   const go = () => import('../../wailsjs/go/main/App')
 
@@ -135,17 +167,21 @@ export default function PreviewPanel({ workspaceId = '1', obj, typeLabel, defini
         </div>
       )}
 
-      {/* Definition */}
-      <div className="flex-1 overflow-auto rounded-xl border border-surface-600" style={{ background: '#18191A' }}>
+      {/* Definition with syntax highlighting and editor theme */}
+      <div className="flex-1 overflow-hidden rounded-xl border border-surface-600 bg-surface-950 flex flex-col">
         {loading ? (
           <div className="flex items-center justify-center h-full gap-3 text-slate-500">
             <Loader2 className="w-5 h-5 animate-spin text-brand-light" />
             <span className="text-sm">Cargando definición…</span>
           </div>
         ) : (
-          <pre className="p-4 text-xs font-mono whitespace-pre-wrap text-slate-200" style={{ margin: 0 }}>
-            {definition || '-- Sin definición disponible'}
-          </pre>
+          <ReadOnlySqlViewer
+            content={definition || '-- Sin definición disponible'}
+            dbType={dbType}
+            editorTheme={currentTheme}
+            fontSize={currentSize}
+            fontFamily={currentFont}
+          />
         )}
       </div>
     </div>

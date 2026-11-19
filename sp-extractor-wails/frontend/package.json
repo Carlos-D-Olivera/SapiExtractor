@@ -20,6 +20,7 @@
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
     "@lezer/highlight": "^1.2.5",
+    "@replit/codemirror-indentation-markers": "^6.5.3",
     "clsx": "^2.1.1",
     "codemirror": "^6.0.2",
     "lucide-react": "^0.468.0",

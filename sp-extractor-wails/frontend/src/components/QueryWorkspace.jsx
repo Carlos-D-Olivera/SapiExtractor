@@ -104,6 +104,10 @@ export default function QueryWorkspace({
   const [viewer, setViewer] = useState(null) // JSON / XML cell open in the viewer
   const [maxRows, setMaxRows] = useState(() => getStoredRowLimit())
   const [fontSize, setFontSize] = useState(() => getStoredFontSize())
+  const [editorTheme, setEditorTheme] = useState(() => localStorage.getItem('sp_extractor_editor_theme') || 'one-dark')
+  const [fontFamily, setFontFamily] = useState(() => localStorage.getItem('sp_extractor_editor_font_family') || 'Consolas')
+  const [showIndent, setShowIndent] = useState(() => localStorage.getItem('sp_extractor_editor_show_indent') !== 'false')
+  const [showFolding, setShowFolding] = useState(() => localStorage.getItem('sp_extractor_editor_show_folding') !== 'false')
   const workspaceRef = useRef(null)
   const deltaRef = useRef(0)
   const schemaLoaded = useRef(false)
@@ -238,6 +242,18 @@ export default function QueryWorkspace({
         }
         if (e.detail.defaultRowLimit !== undefined) {
           setMaxRows(e.detail.defaultRowLimit)
+        }
+        if (e.detail.editorTheme) {
+          setEditorTheme(e.detail.editorTheme)
+        }
+        if (e.detail.editorFontFamily) {
+          setFontFamily(e.detail.editorFontFamily)
+        }
+        if (e.detail.editorShowIndent !== undefined) {
+          setShowIndent(e.detail.editorShowIndent)
+        }
+        if (e.detail.editorShowFolding !== undefined) {
+          setShowFolding(e.detail.editorShowFolding)
         }
       }
     }
@@ -900,6 +916,10 @@ export default function QueryWorkspace({
                 schema={schema}
                 autocompletes={autocompletes}
                 fontSize={fontSize}
+                fontFamily={fontFamily}
+                editorTheme={editorTheme}
+                showIndent={showIndent}
+                showFolding={showFolding}
                 viewRef={editorRef}
                 onSave={() => handleSaveRef.current?.(active)}
                 onOpenSql={handleOpenSqlFile}

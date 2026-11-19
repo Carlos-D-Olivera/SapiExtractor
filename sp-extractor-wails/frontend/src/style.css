@@ -3,6 +3,25 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --app-bg: #0A0F19;
+  --surface-900: 10 15 25;
+  --surface-800: 13 21 32;
+  --surface-700: 17 27 44;
+  --surface-600: 22 34 54;
+  --surface-500: 28 42 66;
+  --surface-400: 36 51 80;
+  --brand-dark: 0 74 119;
+  --brand-accent: 0 119 182;
+  --brand-light: #C2E7FF;
+  --brand-glow: 0 150 199;
+  --bg-editor: #18191A;
+  --glass-bg: rgba(13, 21, 32, 0.75);
+  --glass-border: rgba(0, 74, 119, 0.35);
+  --glass-hover-bg: rgba(22, 34, 54, 0.85);
+  --glass-hover-border: rgba(0, 119, 182, 0.5);
+}
+
 @layer base {
   * {
     box-sizing: border-box;
@@ -16,7 +35,7 @@
   }
 
   body {
-    background-color: #0A0F19;
+    background-color: var(--app-bg, #0A0F19);
     color: #e2e8f0;
     font-family: 'Inter', system-ui, sans-serif;
     overflow: hidden;
@@ -32,40 +51,40 @@
     height: 6px;
   }
   ::-webkit-scrollbar-track {
-    background: #0D1520;
+    background: rgb(var(--surface-800) / 0.8);
   }
   ::-webkit-scrollbar-thumb {
-    background: #243350;
+    background: rgb(var(--surface-400) / 0.8);
     border-radius: 3px;
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: #004A77;
+    background: rgb(var(--brand-accent) / 0.9);
   }
 }
 
 @layer components {
   .glass {
-    background: rgba(13, 21, 32, 0.7);
+    background: var(--glass-bg, rgba(13, 21, 32, 0.7));
     backdrop-filter: blur(12px);
-    border: 1px solid rgba(0, 74, 119, 0.3);
+    border: 1px solid var(--glass-border, rgba(0, 74, 119, 0.3));
   }
 
   .glass-hover {
     @apply glass transition-all duration-200;
   }
   .glass-hover:hover {
-    background: rgba(22, 34, 54, 0.85);
-    border-color: rgba(0, 119, 182, 0.5);
+    background: var(--glass-hover-bg, rgba(22, 34, 54, 0.85));
+    border-color: var(--glass-hover-border, rgba(0, 119, 182, 0.5));
   }
 
   .btn-primary {
     @apply inline-flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-sm transition-all duration-200 select-none;
-    background: linear-gradient(135deg, #004A77, #0077B6);
-    color: #C2E7FF;
-    border: 1px solid rgba(0, 150, 199, 0.4);
+    background: linear-gradient(135deg, rgb(var(--brand-dark)), rgb(var(--brand-accent)));
+    color: var(--brand-light, #C2E7FF);
+    border: 1px solid var(--glass-border, rgba(0, 150, 199, 0.4));
   }
   .btn-primary:hover {
-    background: linear-gradient(135deg, #005a90, #0096C7);
+    background: linear-gradient(135deg, rgb(var(--brand-accent)), rgb(var(--brand-glow)));
     box-shadow: 0 0 16px rgba(0, 150, 199, 0.35);
     transform: translateY(-1px);
   }
@@ -81,14 +100,14 @@
 
   .btn-secondary {
     @apply inline-flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-sm transition-all duration-200 select-none;
-    background: rgba(36, 51, 80, 0.6);
+    background: rgb(var(--surface-400) / 0.5);
     color: #94adc7;
-    border: 1px solid rgba(36, 51, 80, 0.8);
+    border: 1px solid rgb(var(--surface-400) / 0.8);
   }
   .btn-secondary:hover {
-    background: rgba(36, 51, 80, 0.9);
-    color: #C2E7FF;
-    border-color: rgba(0, 74, 119, 0.5);
+    background: rgb(var(--surface-400) / 0.85);
+    color: var(--brand-light, #C2E7FF);
+    border-color: rgb(var(--brand-accent) / 0.6);
   }
 
   .btn-danger {

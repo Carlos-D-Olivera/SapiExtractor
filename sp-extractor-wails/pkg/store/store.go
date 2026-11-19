@@ -274,6 +274,11 @@ type Settings struct {
 	EditorFontSize    int    `json:"editorFontSize"`
 	DefaultOutDir     string `json:"defaultOutDir"`
 	IncludeDropHeader bool   `json:"includeDropHeader"`
+	AppTheme          string `json:"appTheme,omitempty"`
+	EditorTheme       string `json:"editorTheme,omitempty"`
+	EditorFontFamily  string `json:"editorFontFamily,omitempty"`
+	EditorShowIndent  bool   `json:"editorShowIndent"`
+	EditorShowFolding bool   `json:"editorShowFolding"`
 }
 
 // DefaultSettings are used until the user changes them.
@@ -286,6 +291,11 @@ func DefaultSettings() Settings {
 		DefaultRowLimit:   100,
 		EditorFontSize:    12,
 		IncludeDropHeader: true,
+		AppTheme:          "dark-blue",
+		EditorTheme:       "one-dark",
+		EditorFontFamily:  "Consolas",
+		EditorShowIndent:  true,
+		EditorShowFolding: true,
 	}
 }
 
@@ -301,6 +311,15 @@ func (st Settings) sane() Settings {
 	}
 	if st.DefaultRowLimit < 0 {
 		st.DefaultRowLimit = 100
+	}
+	if st.AppTheme == "" {
+		st.AppTheme = "dark-blue"
+	}
+	if st.EditorTheme == "" {
+		st.EditorTheme = "one-dark"
+	}
+	if st.EditorFontFamily == "" {
+		st.EditorFontFamily = "Consolas"
 	}
 	return st
 }

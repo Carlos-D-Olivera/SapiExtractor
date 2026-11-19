@@ -5,18 +5,18 @@ export default {
     extend: {
       colors: {
         brand: {
-          dark: '#004A77',
-          light: '#C2E7FF',
-          accent: '#0077B6',
-          glow: '#0096C7',
+          dark: 'rgb(var(--brand-dark, 0 74 119) / <alpha-value>)',
+          light: 'var(--brand-light, #C2E7FF)',
+          accent: 'rgb(var(--brand-accent, 0 119 182) / <alpha-value>)',
+          glow: 'rgb(var(--brand-glow, 0 150 199) / <alpha-value>)',
         },
         surface: {
-          900: '#0A0F19',
-          800: '#0D1520',
-          700: '#111B2C',
-          600: '#162236',
-          500: '#1C2A42',
-          400: '#243350',
+          900: 'rgb(var(--surface-900, 10 15 25) / <alpha-value>)',
+          800: 'rgb(var(--surface-800, 13 21 32) / <alpha-value>)',
+          700: 'rgb(var(--surface-700, 17 27 44) / <alpha-value>)',
+          600: 'rgb(var(--surface-600, 22 34 54) / <alpha-value>)',
+          500: 'rgb(var(--surface-500, 28 42 66) / <alpha-value>)',
+          400: 'rgb(var(--surface-400, 36 51 80) / <alpha-value>)',
         },
       },
       fontFamily: {
