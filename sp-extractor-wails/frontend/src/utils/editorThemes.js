@@ -119,6 +119,10 @@ function createCustomThemeExtension(themeDef) {
     '.cm-cursor': {
       borderLeftColor: colors.keyword || '#569cd6',
     },
+    '.cm-panels': {
+      backgroundColor: gutterBg,
+      color: '#d4d4d4',
+    },
   }, { dark: true })
 
   const highlightStyle = HighlightStyle.define([

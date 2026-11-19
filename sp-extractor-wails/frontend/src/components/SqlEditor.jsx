@@ -42,6 +42,7 @@ import {
   completionStatus,
 } from '@codemirror/autocomplete'
 import { highlightSelectionMatches, searchKeymap } from '@codemirror/search'
+import { editorSearch } from '../utils/editorSearch'
 import {
   history,
   defaultKeymap,
@@ -716,6 +717,7 @@ export default function SqlEditor({
           crosshairCursor(),
           highlightActiveLine(),
           highlightSelectionMatches(),
+          editorSearch,
           keymap.of([
             ...closeBracketsKeymap,
             ...defaultKeymap,

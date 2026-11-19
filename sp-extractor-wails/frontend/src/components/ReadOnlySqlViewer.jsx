@@ -1,10 +1,12 @@
 import { useEffect, useRef } from 'react'
-import { EditorView, lineNumbers } from '@codemirror/view'
+import { EditorView, lineNumbers, keymap } from '@codemirror/view'
+import { openSearchPanel, searchKeymap, highlightSelectionMatches } from '@codemirror/search'
 import { Compartment, EditorState } from '@codemirror/state'
 import { sql, MSSQL, MySQL, PostgreSQL, SQLDialect } from '@codemirror/lang-sql'
 import { indentationMarkers } from '@replit/codemirror-indentation-markers'
 import { sqlFoldExtension } from '../utils/sqlFolding'
 import { getEditorThemeExtension, makeFontTheme } from '../utils/editorThemes'
+import { editorSearch } from '../utils/editorSearch'
 
 const customMSSQL = SQLDialect.define({ ...MSSQL.spec, caseInsensitiveIdentifiers: true })
 const customMySQL = SQLDialect.define({ ...MySQL.spec, caseInsensitiveIdentifiers: true })
@@ -92,6 +94,9 @@ export default function ReadOnlySqlViewer({
       EditorState.readOnly.of(true),
       EditorView.editable.of(false),
       lineNumbers(),
+      keymap.of(searchKeymap),
+      highlightSelectionMatches(),
+      editorSearch,
       baseViewerTheme,
       langComp.current.of(sql({ dialect, upperCaseKeywords: true })),
       themeComp.current.of(themeExt),
@@ -183,7 +188,16 @@ export default function ReadOnlySqlViewer({
   return (
     <div
       ref={host}
-      className={`h-full w-full overflow-hidden ${className}`}
+      // The content is not editable (so it never takes focus); the container does, to catch Ctrl+F.
+      tabIndex={0}
+      onMouseDown={(e) => { if (!(e.target instanceof HTMLInputElement) && !e.target.closest?.('.cm-panels')) host.current?.focus({ preventScroll: true }) }}
+      onKeyDown={(e) => {
+        if ((e.ctrlKey || e.metaKey) && !e.shiftKey && (e.key === 'f' || e.key === 'F') && viewRef.current) {
+          e.preventDefault()
+          openSearchPanel(viewRef.current)
+        }
+      }}
+      className={`h-full w-full overflow-hidden outline-none ${className}`}
       style={{ fontSize: `${fontSize || 12}px` }}
     />
   )
