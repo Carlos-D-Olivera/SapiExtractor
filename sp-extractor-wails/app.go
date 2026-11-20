@@ -1,9 +1,9 @@
 package main
 
 import (
-	"encoding/hex"
 	"context"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -371,7 +371,7 @@ type ResultSet struct {
 
 // PrintMessage is a PRINT / RAISERROR informational notice captured during execution.
 type PrintMessage struct {
-	Kind   string `json:"kind"`   // "info" | "error"
+	Kind   string `json:"kind"` // "info" | "error"
 	Text   string `json:"text"`
 	Number int32  `json:"number"`
 	Line   int32  `json:"line"`
@@ -740,7 +740,6 @@ func (a *App) GenerateInsertScript(wsID string, req InsertScriptRequest) (string
 		})
 }
 
-
 // WriteFile writes text to an already-known path (used by "Save" to overwrite
 // a previously saved query without opening a dialog again).
 func (a *App) WriteFile(path, text string) error {
@@ -790,6 +789,35 @@ func (a *App) SaveScript(defaultName, text string) (string, error) {
 	if !strings.HasSuffix(strings.ToLower(path), ".sql") {
 		path += ".sql"
 	}
+	if err := os.WriteFile(path, []byte(text), 0644); err != nil {
+		return "", fmt.Errorf("error writing %s: %w", path, err)
+	}
+	return path, nil
+}
+
+// SaveCSV opens a CSV save dialog and writes the prepared query result as UTF-8.
+func (a *App) SaveCSV(defaultName, text string) (string, error) {
+	return saveCSVWithDialog(a.ctx, defaultName, text, runtime.SaveFileDialog)
+}
+
+func saveCSVWithDialog(ctx context.Context, defaultName, text string, dialog func(context.Context, runtime.SaveDialogOptions) (string, error)) (string, error) {
+	if strings.TrimSpace(defaultName) == "" {
+		defaultName = "resultado.csv"
+	}
+	defaultName = filepath.Base(defaultName)
+	if !strings.HasSuffix(strings.ToLower(defaultName), ".csv") {
+		defaultName += ".csv"
+	}
+	path, err := dialog(ctx, runtime.SaveDialogOptions{
+		Title:           "Guardar resultado como CSV",
+		DefaultFilename: defaultName,
+		Filters:         []runtime.FileFilter{{DisplayName: "CSV (*.csv)", Pattern: "*.csv"}},
+	})
+	if err != nil || path == "" {
+		return "", err
+	}
+	// The native CSV dialog supplies the default extension and confirms overwrite
+	// for this exact path. Do not change the destination after that confirmation.
 	if err := os.WriteFile(path, []byte(text), 0644); err != nil {
 		return "", fmt.Errorf("error writing %s: %w", path, err)
 	}
