@@ -1,9 +1,10 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
-import { Play, Plus, X, Loader2, AlertCircle, Ban, Clock, Table2, Trash2, Sparkles, FileCode2, Check, History, RotateCcw, Save, MessageSquare, Copy } from 'lucide-react'
+import { Play, Plus, X, Loader2, AlertCircle, Ban, Clock, Table2, Trash2, Sparkles, FileCode2, FileSpreadsheet, Check, History, RotateCcw, Save, MessageSquare, Copy } from 'lucide-react'
 import clsx from 'clsx'
 import SqlEditor, { getIdentifierAtCursor, stripQuotes } from './SqlEditor'
 import { getStoredAutocompletes, loadStoredAutocompletes } from './AutocompletesModal'
 import InsertScriptModal from './InsertScriptModal'
+import CsvExportModal from './CsvExportModal'
 import StructuredViewerModal from './StructuredViewerModal'
 import QueryHistoryModal, { titleFromSql } from './QueryHistoryModal'
 import TabContextMenu from './TabContextMenu'
@@ -114,6 +115,7 @@ export default function QueryWorkspace({
   const tabsRef = useRef(tabs)
   tabsRef.current = tabs
   const [insertTarget, setInsertTarget] = useState(null)
+  const [csvTarget, setCsvTarget] = useState(null)
   const [viewer, setViewer] = useState(null) // JSON / XML cell open in the viewer
   const [maxRows, setMaxRows] = useState(() => getStoredRowLimit())
   const [editorFontSize, setEditorFontSize] = useState(() => getStoredEditorFontSize())
@@ -1007,6 +1009,7 @@ export default function QueryWorkspace({
               resetResultsFontSize={resetResultsFontSize}
               onChangeActiveTab={(tabName) => patchTab(active.id, { activeResultTab: tabName })}
               onInsertScript={set => setInsertTarget({ set, sql: active.lastSql || active.sql })}
+              onExportCsv={setCsvTarget}
               onOpenCell={setViewer}
             />
           </div>
@@ -1015,7 +1018,8 @@ export default function QueryWorkspace({
 
       
 
-      {/* INSERT script generator */}
+      {/* Result exports */}
+      {csvTarget && <CsvExportModal set={csvTarget} onClose={() => setCsvTarget(null)} />}
       {insertTarget && (
         <InsertScriptModal
           workspaceId={workspaceId}
@@ -1141,6 +1145,7 @@ export function ResultArea({
   resetResultsFontSize,
   onChangeActiveTab,
   onInsertScript,
+  onExportCsv,
   onOpenCell,
 }) {
   const [copiedMessages, setCopiedMessages] = useState(false)
@@ -1311,6 +1316,7 @@ export function ResultArea({
                   total={sets.length}
                   fontSize={fontSize}
                   onInsertScript={onInsertScript}
+                  onExportCsv={onExportCsv}
                   onOpenCell={onOpenCell}
                 />
               ))}
@@ -1393,7 +1399,7 @@ function clip(value) {
 const cellText = (v) => (v === null || v === undefined ? '' : String(v))
 const MIN_GRID_HEIGHT = 80
 
-function ResultGrid({ set, index, total, fontSize, onInsertScript, onOpenCell }) {
+function ResultGrid({ set, index, total, fontSize, onInsertScript, onExportCsv, onOpenCell }) {
   const { columns = [], rows = [], types = [] } = set
   const [height, setHeight] = useState(null) // null = automatic (up to 45% of the window)
   const [sel, setSel] = useState(null) // { r, c } selected cell
@@ -1458,6 +1464,15 @@ function ResultGrid({ set, index, total, fontSize, onInsertScript, onOpenCell })
         >
           <FileCode2 className="w-3 h-3" />
           Script As Insert
+        </button>
+        <button
+          onClick={() => onExportCsv?.(set)}
+          disabled={rows.length === 0 || !onExportCsv}
+          className="btn-secondary text-[11px] py-1 px-2"
+          title="Exportar las filas de este resultado a CSV"
+        >
+          <FileSpreadsheet className="w-3 h-3" />
+          Exportar CSV
         </button>
       </div>
       {set.truncated && (

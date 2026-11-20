@@ -105,6 +105,8 @@ export function ResetWorkspaceQueryState(arg1:string):Promise<void>;
 
 export function SaveAutoCompletes(arg1:Array<config.AutoCompleteItem>):Promise<void>;
 
+export function SaveCSV(arg1:string,arg2:string):Promise<string>;
+
 export function SaveConnection(arg1:config.SavedConnection):Promise<void>;
 
 export function SaveObject(arg1:string,arg2:db.DbObject):Promise<string>;
