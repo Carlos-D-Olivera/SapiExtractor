@@ -15,7 +15,8 @@ func (e *PostgresExtractor) ExtractObjects(conn *sql.DB, objType db.DbObjectType
 	if objType != db.StoredProcedure {
 		return nil, nil
 	}
-	query := `SELECT n.nspname AS SchemaName, p.proname AS ProcedureName
+	query := `SELECT n.nspname AS SchemaName, p.proname AS ProcedureName,
+	                 p.oid::text, p.prokind::text, pg_get_function_identity_arguments(p.oid)
 	          FROM pg_proc p
 	          INNER JOIN pg_namespace n ON n.oid = p.pronamespace
 	          WHERE (p.prokind = 'p' OR p.prokind = 'f')
@@ -38,11 +39,11 @@ func (e *PostgresExtractor) ExtractObjects(conn *sql.DB, objType db.DbObjectType
 
 	var list []db.DbObject
 	for rows.Next() {
-		var schema, name string
-		if err := rows.Scan(&schema, &name); err != nil {
+		var schema, name, routineID, routineKind, routineSignature string
+		if err := rows.Scan(&schema, &name, &routineID, &routineKind, &routineSignature); err != nil {
 			return nil, fmt.Errorf("scan procedure row: %w", err)
 		}
-		list = append(list, db.DbObject{Type: db.StoredProcedure, Schema: schema, Name: name})
+		list = append(list, db.DbObject{Type: db.StoredProcedure, Schema: schema, Name: name, RoutineID: routineID, RoutineKind: routineKind, RoutineSignature: routineSignature})
 	}
 	return list, rows.Err()
 }
@@ -174,11 +175,16 @@ func (e *PostgresExtractor) FillDefinition(conn *sql.DB, obj *db.DbObject) error
 	          FROM pg_proc p
 	          INNER JOIN pg_namespace n ON n.oid = p.pronamespace
 	          WHERE n.nspname = $1 AND p.proname = $2`
-	row := conn.QueryRow(query, obj.Schema, obj.Name)
+	args := []any{obj.Schema, obj.Name}
+	if obj.RoutineID != "" {
+		query += " AND p.oid = $3::oid"
+		args = append(args, obj.RoutineID)
+	}
+	row := conn.QueryRow(query, args...)
 	var def sql.NullString
 	if err := row.Scan(&def); err != nil {
 		obj.Definition = ""
-		return nil
+		return fmt.Errorf("read PostgreSQL routine definition: %w", err)
 	}
 	if def.Valid {
 		obj.Definition = def.String

@@ -24,6 +24,7 @@ function makeTab(seq, overrides = {}) {
     showResults: false,
     activeResultTab: 'results',
     ...overrides,
+    openedSql: overrides.openedSql ?? overrides.sql ?? '',
   }
 }
 
@@ -99,6 +100,8 @@ export default function QueryWorkspace({
   onOpenTableRelations,
   onOpenTableScripts,
   onDirtyChange,
+  procedures,
+  onOpenProcedure,
 }) {
   const tabSeqRef = useRef(1)
   const createTab = useCallback((overrides = {}) => {
@@ -673,6 +676,7 @@ export default function QueryWorkspace({
   onOpenTableScriptsRef.current = onOpenTableScripts
 
   const [copyToast, setCopyToast] = useState('')
+  const [editorError, setEditorError] = useState('')
 
   const openQueryInNewTab = useCallback((sqlText, tabTitle, autoRun = false) => {
     const t = createTab({ sql: sqlText, title: tabTitle || 'Consulta', savedSql: '', showResults: false })
@@ -953,6 +957,7 @@ export default function QueryWorkspace({
             <span className="text-[10px] text-slate-600">F5 ejecuta · selección = solo eso · Ctrl+R resultados</span>
           </div>
 
+          {editorError && <div role="alert" className="text-xs text-red-300 px-3 py-1">{editorError}</div>}
           {/* Editor */}
           <div ref={editorContainerRef} className={clsx('px-3', showResults ? 'flex-shrink-0' : 'flex-1 overflow-hidden pb-3 min-h-0')}>
             <div
@@ -965,6 +970,9 @@ export default function QueryWorkspace({
               <SqlEditor
                 key={active.id}
                 value={active.sql}
+                openedSql={active.openedSql}
+                procedures={procedures}
+                onOpenProcedure={onOpenProcedure}
                 onChange={sqlText => patchTab(active.id, { sql: sqlText })}
                 dbType={dbType}
                 schema={schema}
@@ -975,6 +983,7 @@ export default function QueryWorkspace({
                 showIndent={showIndent}
                 showFolding={showFolding}
                 viewRef={editorRef}
+                onEditorError={setEditorError}
                 onSave={() => handleSaveRef.current?.(active)}
                 onOpenSql={handleOpenSqlFile}
                 onRun={selection => runQuery(active, selection)}

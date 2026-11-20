@@ -33,11 +33,14 @@ type ConnInfo struct {
 
 // DbObject represents a generic database object (SP, table, column, etc.).
 type DbObject struct {
-	Type       DbObjectType `json:"type"`
-	Schema     string       `json:"schema"`
-	ParentName string       `json:"parentName"`
-	Name       string       `json:"name"`
-	Definition string       `json:"definition,omitempty"`
+	Type             DbObjectType `json:"type"`
+	Schema           string       `json:"schema"`
+	ParentName       string       `json:"parentName"`
+	Name             string       `json:"name"`
+	Definition       string       `json:"definition,omitempty"`
+	RoutineID        string       `json:"routineId,omitempty"`
+	RoutineKind      string       `json:"routineKind,omitempty"`
+	RoutineSignature string       `json:"routineSignature,omitempty"`
 }
 
 // TableColumn describes a single column of a table for the schema model view.

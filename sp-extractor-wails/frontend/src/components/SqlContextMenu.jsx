@@ -130,6 +130,7 @@ export default function SqlContextMenu({
             key={a.label}
             type="button"
             disabled={!enabled}
+            onMouseDown={e => e.preventDefault()}
             onClick={handleAction(a.fn)}
             className={clsx(
               'w-full flex items-center gap-2.5 px-3 py-1.5 text-left transition-colors',
