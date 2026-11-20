@@ -260,6 +260,9 @@ export namespace db {
 	    parentName: string;
 	    name: string;
 	    definition?: string;
+	    routineId?: string;
+	    routineKind?: string;
+	    routineSignature?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new DbObject(source);
@@ -272,6 +275,9 @@ export namespace db {
 	        this.parentName = source["parentName"];
 	        this.name = source["name"];
 	        this.definition = source["definition"];
+	        this.routineId = source["routineId"];
+	        this.routineKind = source["routineKind"];
+	        this.routineSignature = source["routineSignature"];
 	    }
 	}
 	export class ForeignKey {

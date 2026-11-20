@@ -18,6 +18,8 @@ export default function PreviewPanel({
   editorTheme,
   fontSize,
   fontFamily,
+  procedures,
+  onOpenProcedure,
 }) {
   const [copied, setCopied] = useState(false)
   const [actionError, setActionError] = useState('')
@@ -177,6 +179,8 @@ export default function PreviewPanel({
         ) : (
           <ReadOnlySqlViewer
             content={definition || '-- Sin definición disponible'}
+            procedures={procedures}
+            onOpenProcedure={onOpenProcedure}
             dbType={dbType}
             editorTheme={currentTheme}
             fontSize={currentSize}

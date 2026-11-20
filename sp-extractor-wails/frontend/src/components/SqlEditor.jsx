@@ -42,7 +42,6 @@ import {
   completionStatus,
 } from '@codemirror/autocomplete'
 import { highlightSelectionMatches, searchKeymap } from '@codemirror/search'
-import { editorSearch } from '../utils/editorSearch'
 import {
   history,
   defaultKeymap,
@@ -59,6 +58,11 @@ import {
 import { indentationMarkers } from '@replit/codemirror-indentation-markers'
 import { sqlFoldExtension } from '../utils/sqlFolding'
 import { getEditorThemeExtension, makeFontTheme } from '../utils/editorThemes'
+import { clipboardAction } from '../utils/editorClipboard'
+import { createEditorSearch } from '../utils/editorSearch'
+import { createChangeTracking } from '../utils/editorChanges'
+import { createEditorOverview } from '../utils/editorOverview'
+import { createProcedureLinks } from '../utils/procedureLinks'
 
 // Dialects with case-insensitive identifiers so names aren't auto-quoted
 const customMSSQL = SQLDialect.define({
@@ -86,6 +90,9 @@ const baseTheme = EditorView.theme({
   '.cm-gutters': { borderRight: '1px solid rgba(255, 255, 255, 0.08)', color: '#64748b' },
   '.cm-lineNumbers .cm-gutterElement': { cursor: 'pointer' },
   '.cm-activeLine': { backgroundColor: 'rgba(255,255,255,0.03)' },
+  // Custom themes paint an opaque active line above drawSelection's layer.
+  // Remove that fill while text is selected so every selected range stays blue.
+  '&.cm-has-selection .cm-activeLine': { backgroundColor: 'transparent !important' },
   '.cm-activeLineGutter': { backgroundColor: 'rgba(255,255,255,0.05)' },
   '&.cm-focused': { outline: 'none' },
   '.cm-tooltip.cm-tooltip-autocomplete': { fontFamily: 'inherit' },
@@ -420,29 +427,9 @@ function sqlLanguage(dbType, schema) {
  *  - viewRef: receives the EditorView
  */
 // Cut / copy / paste for the context menu (the native menu is replaced by ours).
-async function clipboardAction(view, action) {
-  if (!view) return
-  const { from, to } = view.state.selection.main
-  try {
-    if (action === 'paste') {
-      const text = await navigator.clipboard.readText()
-      if (!text) return
-      view.dispatch({
-        changes: { from, to, insert: text },
-        selection: { anchor: from + text.length },
-        scrollIntoView: true,
-        userEvent: 'input.paste',
-      })
-    } else if (from !== to) {
-      await navigator.clipboard.writeText(view.state.sliceDoc(from, to))
-      if (action === 'cut') view.dispatch({ changes: { from, to, insert: '' }, userEvent: 'delete.cut' })
-    }
-  } catch { /* clipboard unavailable or permission denied */ }
-  view.focus()
-}
-
 export default function SqlEditor({
   value,
+  openedSql,
   onChange,
   dbType,
   schema,
@@ -457,7 +444,10 @@ export default function SqlEditor({
   onGenerateScript,
   onCopyName,
   onToggleResults,
-  viewRef,
+  viewRef: providedViewRef,
+  onEditorError,
+  procedures,
+  onOpenProcedure,
   fontSize = 12,
   fontFamily = 'Consolas',
   editorTheme = 'one-dark',
@@ -465,12 +455,30 @@ export default function SqlEditor({
   showFolding = true,
 }) {
   const host = useRef(null)
+  const internalViewRef = useRef(null)
+  const viewRef = providedViewRef || internalViewRef
+  const [clipboardError, setClipboardError] = useState('')
+  const runClipboardAction = async (action) => {
+    const initiatingView = viewRef.current
+    setClipboardError('')
+    onEditorError?.('')
+    try { await clipboardAction(initiatingView, action) }
+    catch (error) {
+      if (!initiatingView || initiatingView.isDestroyed || viewRef.current !== initiatingView) return
+      if (onEditorError) onEditorError(error.message)
+      else setClipboardError(error.message)
+      initiatingView.focus()
+    }
+  }
   const lang = useRef(new Compartment())
   const highlightComp = useRef(new Compartment())
   const fontComp = useRef(new Compartment())
   const themeComp = useRef(new Compartment())
   const indentComp = useRef(new Compartment())
   const foldComp = useRef(new Compartment())
+  const procedureComp = useRef(new Compartment())
+  const onOpenProcedureRef = useRef(onOpenProcedure)
+  onOpenProcedureRef.current = onOpenProcedure
   const onChangeRef = useRef(onChange)
   const onRunRef = useRef(onRun)
   const onAltF1Ref = useRef(onAltF1)
@@ -706,6 +714,9 @@ export default function SqlEditor({
           highlightSpecialChars(),
           history(),
           drawSelection(),
+          EditorView.editorAttributes.of(view => ({
+            class: view.state.selection.ranges.some(range => !range.empty) ? 'cm-has-selection' : '',
+          })),
           dropCursor(),
           EditorState.allowMultipleSelections.of(true),
           indentOnInput(),
@@ -717,7 +728,10 @@ export default function SqlEditor({
           crosshairCursor(),
           highlightActiveLine(),
           highlightSelectionMatches(),
-          editorSearch,
+          createEditorSearch(),
+          createChangeTracking(openedSql ?? value ?? ''),
+          createEditorOverview({ trackChanges: true }),
+          procedureComp.current.of(createProcedureLinks({ procedures, dbType, onOpenProcedure: object => onOpenProcedureRef.current?.(object) })),
           keymap.of([
             ...closeBracketsKeymap,
             ...defaultKeymap,
@@ -733,15 +747,25 @@ export default function SqlEditor({
           foldComp.current.of(showFolding ? sqlFoldExtension : []),
           baseTheme,
           EditorView.domEventHandlers({
+            mousedown: (event, view) => {
+              if (event.button !== 2) return false
+              const pos = view.posAtCoords({ x: event.clientX, y: event.clientY })
+              if (pos != null && view.state.selection.ranges.some(range => pos >= range.from && pos <= range.to)) {
+                // Prevent native right-mousedown from collapsing secondary ranges
+                // before the subsequent contextmenu handler sees them.
+                event.preventDefault()
+                return true
+              }
+              return false
+            },
             contextmenu: (event, view) => {
               event.preventDefault()
               const pos = view.posAtCoords({ x: event.clientX, y: event.clientY })
               let target = ''
               if (pos != null) {
-                const { from, to } = view.state.selection.main
-                const isInsideSelection = from !== to && pos >= from && pos <= to
-                if (isInsideSelection) {
-                  target = view.state.sliceDoc(from, to).trim()
+                const range = view.state.selection.ranges.find(r => pos >= r.from && pos <= r.to)
+                if (range) {
+                  target = range.empty ? getIdentifierAtCursor(view.state, pos) : view.state.sliceDoc(range.from, range.to).trim()
                 } else {
                   view.dispatch({ selection: EditorSelection.cursor(pos) })
                   target = getIdentifierAtCursor(view.state, pos)
@@ -774,6 +798,10 @@ export default function SqlEditor({
   }, [])
 
   // Reconfigure the language when the schema (or dialect) changes, keeping the document.
+  useEffect(() => {
+    viewRef.current?.dispatch({ effects: procedureComp.current.reconfigure(createProcedureLinks({ procedures, dbType, onOpenProcedure: onOpenProcedure ? object => onOpenProcedureRef.current?.(object) : undefined })) })
+  }, [procedures, onOpenProcedure, dbType, viewRef])
+
   useEffect(() => {
     const view = viewRef?.current
     if (view) view.dispatch({ effects: lang.current.reconfigure(sqlLanguage(dbType, schema)) })
@@ -834,6 +862,7 @@ export default function SqlEditor({
 
   return (
     <>
+      {clipboardError && <div role="alert" className="text-xs text-red-300 px-2 py-1">{clipboardError}</div>}
       <div ref={host} className="h-full w-full" style={{ fontSize: `${fontSize || 12}px` }} />
       {contextMenu && (
         <SqlContextMenu
@@ -848,9 +877,9 @@ export default function SqlEditor({
           onGenerateScript={(tbl, scriptId) => onGenerateScriptRef.current?.(tbl, scriptId)}
           onCopyName={(tbl) => onCopyNameRef.current?.(tbl)}
           hasSelection={contextMenu.hasSelection}
-          onCut={() => clipboardAction(viewRef?.current, 'cut')}
-          onCopy={() => clipboardAction(viewRef?.current, 'copy')}
-          onPaste={() => clipboardAction(viewRef?.current, 'paste')}
+          onCut={() => runClipboardAction('cut')}
+          onCopy={() => runClipboardAction('copy')}
+          onPaste={() => runClipboardAction('paste')}
         />
       )}
     </>

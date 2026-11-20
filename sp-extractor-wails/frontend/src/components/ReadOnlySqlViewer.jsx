@@ -1,12 +1,14 @@
 import { useEffect, useRef } from 'react'
-import { EditorView, lineNumbers, keymap } from '@codemirror/view'
-import { openSearchPanel, searchKeymap, highlightSelectionMatches } from '@codemirror/search'
+import { EditorView, lineNumbers } from '@codemirror/view'
+import { openSearchPanel, highlightSelectionMatches } from '@codemirror/search'
 import { Compartment, EditorState } from '@codemirror/state'
 import { sql, MSSQL, MySQL, PostgreSQL, SQLDialect } from '@codemirror/lang-sql'
 import { indentationMarkers } from '@replit/codemirror-indentation-markers'
 import { sqlFoldExtension } from '../utils/sqlFolding'
 import { getEditorThemeExtension, makeFontTheme } from '../utils/editorThemes'
-import { editorSearch } from '../utils/editorSearch'
+import { createEditorSearch } from '../utils/editorSearch'
+import { createEditorOverview } from '../utils/editorOverview'
+import { createProcedureLinks } from '../utils/procedureLinks'
 
 const customMSSQL = SQLDialect.define({ ...MSSQL.spec, caseInsensitiveIdentifiers: true })
 const customMySQL = SQLDialect.define({ ...MySQL.spec, caseInsensitiveIdentifiers: true })
@@ -73,6 +75,8 @@ export default function ReadOnlySqlViewer({
   showIndent = true,
   showFolding = true,
   className = '',
+  procedures,
+  onOpenProcedure,
 }) {
   const host = useRef(null)
   const viewRef = useRef(null)
@@ -82,6 +86,7 @@ export default function ReadOnlySqlViewer({
   const fontComp = useRef(new Compartment())
   const indentComp = useRef(new Compartment())
   const foldComp = useRef(new Compartment())
+  const procedureComp = useRef(new Compartment())
 
   // Initial creation of the CodeMirror view
   useEffect(() => {
@@ -93,10 +98,12 @@ export default function ReadOnlySqlViewer({
     const extensions = [
       EditorState.readOnly.of(true),
       EditorView.editable.of(false),
+      EditorView.contentAttributes.of({ tabindex: '0', 'aria-label': 'Visor SQL de solo lectura' }),
+      createEditorSearch(),
+      createEditorOverview(),
+      procedureComp.current.of(createProcedureLinks({ procedures, onOpenProcedure, dbType })),
       lineNumbers(),
-      keymap.of(searchKeymap),
       highlightSelectionMatches(),
-      editorSearch,
       baseViewerTheme,
       langComp.current.of(sql({ dialect, upperCaseKeywords: true })),
       themeComp.current.of(themeExt),
@@ -124,6 +131,10 @@ export default function ReadOnlySqlViewer({
   }, []) // Mount only once
 
   // Update document content when prop changes
+  useEffect(() => {
+    viewRef.current?.dispatch({ effects: procedureComp.current.reconfigure(createProcedureLinks({ procedures, onOpenProcedure, dbType })) })
+  }, [procedures, onOpenProcedure, dbType])
+
   useEffect(() => {
     const view = viewRef.current
     if (!view) return
@@ -188,11 +199,10 @@ export default function ReadOnlySqlViewer({
   return (
     <div
       ref={host}
-      // The content is not editable (so it never takes focus); the container does, to catch Ctrl+F.
+      // Catch Ctrl+F when the outer viewer rather than its content has focus.
       tabIndex={0}
-      onMouseDown={(e) => { if (!(e.target instanceof HTMLInputElement) && !e.target.closest?.('.cm-panels')) host.current?.focus({ preventScroll: true }) }}
       onKeyDown={(e) => {
-        if ((e.ctrlKey || e.metaKey) && !e.shiftKey && (e.key === 'f' || e.key === 'F') && viewRef.current) {
+        if (!e.defaultPrevented && (e.ctrlKey || e.metaKey) && !e.shiftKey && (e.key === 'f' || e.key === 'F') && viewRef.current) {
           e.preventDefault()
           openSearchPanel(viewRef.current)
         }

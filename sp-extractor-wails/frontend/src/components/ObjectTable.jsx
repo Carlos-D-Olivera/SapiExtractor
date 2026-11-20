@@ -22,6 +22,14 @@ export default function ObjectTable({
 }) {
   const [sortDir, setSortDir] = useState('asc')
 
+  // Keep the server's table.column syntax behind the two column-search fields.
+  const columnSearchSeparator = search.lastIndexOf('.')
+  const tableSearch = columnSearchSeparator >= 0 ? search.slice(0, columnSearchSeparator) : ''
+  const columnSearch = columnSearchSeparator >= 0 ? search.slice(columnSearchSeparator + 1) : search
+  const changeColumnSearch = (table, column) => {
+    onSearchChange(table ? `${table}.${column}` : column)
+  }
+
   // The list is already filtered (and capped) by the database; here we only sort.
   const filtered = useMemo(() => {
     return [...objects]
@@ -66,17 +74,32 @@ export default function ObjectTable({
   return (
     <div className="flex flex-col h-full">
       {/* Toolbar */}
-      <div className="flex items-center gap-2 mb-3">
-        <div className="relative flex-1">
+      <div className="flex flex-wrap items-center gap-2 mb-3">
+        {objType === 'COLUMN' && (
+          <label className="relative flex-1 min-w-40">
+            <span className="sr-only">Tabla</span>
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500" />
+            <input
+              className="input-field pl-8 py-1.5"
+              placeholder="Tabla: ej. ControlFactura…"
+              value={tableSearch}
+              onChange={e => changeColumnSearch(e.target.value, columnSearch)}
+            />
+          </label>
+        )}
+        <label className="relative flex-1 min-w-40">
+          <span className="sr-only">{objType === 'COLUMN' ? 'Columna' : 'Buscar objetos'}</span>
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500" />
           <input
-            className="input-field pl-8 py-1.5"
-            placeholder={objType === 'COLUMN' ? "Buscar columna, ej. ControlFactura. o Numfactura…" : "Buscar en toda la base de datos…"}
-            value={search}
-            onChange={e => onSearchChange(e.target.value)}
+            className="input-field pl-8 pr-8 py-1.5"
+            placeholder={objType === 'COLUMN' ? "Columna: ej. Numfactura…" : "Buscar en toda la base de datos…"}
+            value={objType === 'COLUMN' ? columnSearch : search}
+            onChange={e => objType === 'COLUMN'
+              ? changeColumnSearch(tableSearch, e.target.value)
+              : onSearchChange(e.target.value)}
           />
           {searching && <Loader2 className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 animate-spin text-brand-light" />}
-        </div>
+        </label>
         <span className="text-xs text-slate-500 whitespace-nowrap">
           {selectedKeys.size} seleccionados · {
             search
@@ -251,5 +274,5 @@ export default function ObjectTable({
 }
 
 function objKey(obj) {
-  return `${obj.schema}|${obj.parentName || ''}|${obj.name}|${obj.type}`
+  return `${obj.schema}|${obj.parentName || ''}|${obj.name}|${obj.type}${obj.routineId ? `|${obj.routineId}` : ''}`
 }

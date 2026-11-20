@@ -1,15 +1,88 @@
-import { Prec } from '@codemirror/state'
-import { EditorView, runScopeHandlers } from '@codemirror/view'
-import {
-  search, SearchQuery, setSearchQuery, getSearchQuery,
-  findNext, findPrevious, replaceNext, replaceAll, closeSearchPanel,
-} from '@codemirror/search'
+import { Prec, StateEffect, StateField } from '@codemirror/state'
+import { EditorView, keymap, ViewPlugin, runScopeHandlers } from '@codemirror/view'
+import { search, searchKeymap, SearchQuery, getSearchQuery, setSearchQuery, searchPanelOpen, findNext, findPrevious, closeSearchPanel, replaceNext, replaceAll } from '@codemirror/search'
 
-// Search / replace bar shared by the query editor and the read-only definition viewer.
-// Colours come from the editor theme (via currentColor) and the app theme (CSS variables),
-// so it follows both settings.
+export function* iterSearchMatches(state, query) {
+  if (!query.valid) return
+  for (const { from, to } of query.getCursor(state)) yield { from, to }
+}
 
-const MAX_COUNT = 5000 // matches counted before showing "5000+"
+export function selectedMatchIndex(matches, selection) {
+  let lo = 0, hi = matches.length
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1
+    if (matches[mid].from < selection.from) lo = mid + 1
+    else hi = mid
+  }
+  return matches[lo]?.from === selection.from && matches[lo]?.to === selection.to ? lo : -1
+}
+
+const publishMatches = StateEffect.define()
+const requestSearchJump = StateEffect.define()
+const emptyMatches = { matches: [], currentIndex: -1, pending: false }
+export const searchMatchState = StateField.define({
+  create: () => emptyMatches,
+  update(value, tr) {
+    if (!searchPanelOpen(tr.state)) return emptyMatches
+    const query = getSearchQuery(tr.state)
+    if (tr.docChanged || !query.eq(getSearchQuery(tr.startState)) || !searchPanelOpen(tr.startState)) {
+      value = { ...emptyMatches, pending: query.valid }
+    }
+    for (const effect of tr.effects) if (effect.is(publishMatches) && effect.value.doc === tr.state.doc) {
+      value = { matches: effect.value.matches, pending: false, currentIndex: -1 }
+    }
+    const currentIndex = selectedMatchIndex(value.matches, tr.state.selection.main)
+    return currentIndex === value.currentIndex ? value : { ...value, currentIndex }
+  },
+})
+
+const matchIndexer = ViewPlugin.fromClass(class {
+  constructor(view) { this.view = view; this.generation = 0; this.schedule() }
+  update(update) {
+    for (const tr of update.transactions) for (const effect of tr.effects) {
+      if (effect.is(requestSearchJump)) this.jumpRequest = effect.value
+    }
+    if (update.docChanged || !getSearchQuery(update.state).eq(getSearchQuery(update.startState)) || searchPanelOpen(update.state) !== searchPanelOpen(update.startState)) this.schedule()
+    else if (this.jumpRequest && !update.state.field(searchMatchState).pending) {
+      clearTimeout(this.jumpTimer)
+      this.jumpTimer = setTimeout(() => {
+        if (this.view.isDestroyed) return
+        const range = this.takeJump(this.view.state.field(searchMatchState).matches)
+        if (range) this.view.dispatch({ selection: { anchor: range.from, head: range.to }, effects: EditorView.scrollIntoView(range.from, { y: 'center' }), userEvent: 'select.search' })
+      }, 0)
+    }
+  }
+  takeJump(matches) {
+    const request = this.jumpRequest
+    this.jumpRequest = null
+    if (!request || request.doc !== this.view.state.doc || !request.query.eq(getSearchQuery(this.view.state)) || !request.selection.eq(this.view.state.selection)) return null
+    return matches.find(match => match.from >= request.selection.main.from) || matches[0] || null
+  }
+  schedule() {
+    clearTimeout(this.timer)
+    clearTimeout(this.jumpTimer)
+    this.worker?.terminate(); this.worker = null
+    const generation = ++this.generation
+    const state = this.view.state, query = getSearchQuery(state)
+    if (!searchPanelOpen(state) || !query.valid) return
+    this.timer = setTimeout(() => {
+      // A cursor can scan the whole document before returning a single absent/rare
+      // match. Run the native CodeMirror query in a disposable worker, not the UI.
+      this.worker = new Worker(new URL('./editorSearch.worker.js', import.meta.url), { type: 'module' })
+      this.worker.onmessage = ({ data }) => {
+        if (generation !== this.generation || data.generation !== generation || this.view.isDestroyed || state.doc !== this.view.state.doc) return
+        const range = this.takeJump(data.matches)
+        const effects = [publishMatches.of({ doc: state.doc, matches: data.matches })]
+        if (range) effects.push(EditorView.scrollIntoView(range.from, { y: 'center' }))
+        this.view.dispatch({ effects, ...(range ? { selection: { anchor: range.from, head: range.to }, userEvent: 'select.search' } : {}) })
+        this.worker?.terminate(); this.worker = null
+      }
+      this.worker.onerror = event => { console.error('No se pudo indexar la búsqueda', event.message); this.worker?.terminate(); this.worker = null }
+      this.worker.postMessage({ generation, doc: state.doc.toString(), wordChars: state.languageDataAt('wordChars', state.selection.main.head), query: { search: query.search, caseSensitive: query.caseSensitive, wholeWord: query.wholeWord, regexp: query.regexp, literal: query.literal } })
+    }, 50)
+  }
+  destroy() { this.generation++; clearTimeout(this.timer); clearTimeout(this.jumpTimer); this.worker?.terminate() }
+})
 
 function h(tag, props = {}, ...kids) {
   const el = document.createElement(tag)
@@ -35,7 +108,7 @@ function createPanel(view) {
   })
   replaceInput.value = query.replace
 
-  const count = h('span', { class: 'cm-sx-count' })
+  const count = h('span', { class: 'cm-sx-count', role: 'status', 'aria-label': 'Coincidencias' })
 
   const toggle = (label, title, on) => {
     const b = h('button', { type: 'button', class: 'cm-sx-btn cm-sx-toggle', title, 'aria-label': title, 'aria-pressed': String(on) }, label)
@@ -73,46 +146,27 @@ function createPanel(view) {
     })
   }
 
-  // From the cursor, selects the first match (wrapping around) so typing already "goes to" the word.
-  function jumpToFirst(q) {
-    if (!q.valid) return
-    const { from } = view.state.selection.main
-    let m = q.getCursor(view.state, from).next()
-    if (m.done) m = q.getCursor(view.state).next()
-    if (m.done) return
-    view.dispatch({
-      selection: { anchor: m.value.from, head: m.value.to },
-      effects: EditorView.scrollIntoView(m.value.from, { y: 'center' }),
-      userEvent: 'select.search',
-    })
-  }
-
+  // Select the first result after the worker finishes; never scan the SQL on input.
   function commit(jump) {
     const q = buildQuery()
-    if (!q.eq(query)) {
-      query = q
-      view.dispatch({ effects: setSearchQuery.of(q) })
-    }
-    if (jump) jumpToFirst(q)
+    const effects = []
+    if (!q.eq(getSearchQuery(view.state))) effects.push(setSearchQuery.of(q))
+    if (jump && q.valid) effects.push(requestSearchJump.of({ query: q, doc: view.state.doc, selection: view.state.selection }))
+    if (effects.length) view.dispatch({ effects })
+    query = q
     updateCount()
   }
 
   function updateCount() {
     const q = getSearchQuery(view.state)
+    const { matches, currentIndex, pending } = view.state.field(searchMatchState)
     count.classList.remove('none')
+    findInput.setAttribute('aria-invalid', String(!!q.search && !q.valid))
     if (!q.search) { count.textContent = ''; return }
     if (!q.valid) { count.textContent = 'Expresión inválida'; count.classList.add('none'); return }
-    const sel = view.state.selection.main
-    const cur = q.getCursor(view.state)
-    let n = 0
-    let idx = 0
-    for (let m = cur.next(); !m.done; m = cur.next()) {
-      n++
-      if (!idx && m.value.from === sel.from && m.value.to === sel.to) idx = n
-      if (n >= MAX_COUNT) break
-    }
-    if (n === 0) { count.textContent = 'Sin resultados'; count.classList.add('none'); return }
-    count.textContent = `${idx ? `${idx} de ` : ''}${n}${n >= MAX_COUNT ? '+' : ''}`
+    if (pending) { count.textContent = 'Buscando…'; return }
+    if (!matches.length) { count.textContent = 'Sin resultados'; count.classList.add('none'); return }
+    count.textContent = (currentIndex >= 0 ? (currentIndex + 1) + ' de ' : '') + matches.length
   }
 
   findInput.addEventListener('input', () => commit(true))
@@ -144,21 +198,22 @@ function createPanel(view) {
       ;(e.shiftKey ? findPrevious : findNext)(view)
       return
     }
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeSearchPanel(view); view.focus(); return }
     if (runScopeHandlers(view, e, 'search-panel')) { e.preventDefault(); return }
     if (e.key === 'Enter' && e.target === replaceInput) { e.preventDefault(); commit(false); replaceNext(view) }
   })
+
+  updateCount()
 
   return {
     dom,
     top: true,
     mount() { findInput.select() },
     update(u) {
-      let queryChanged = false
       for (const tr of u.transactions) {
         for (const e of tr.effects) {
           if (e.is(setSearchQuery) && !e.value.eq(query)) {
             query = e.value
-            queryChanged = true
             findInput.value = query.search
             replaceInput.value = query.replace
             setOn(caseBtn, query.caseSensitive)
@@ -167,7 +222,7 @@ function createPanel(view) {
           }
         }
       }
-      if (queryChanged || u.docChanged || u.selectionSet) updateCount()
+      updateCount()
     },
   }
 }
@@ -215,7 +270,7 @@ const panelTheme = Prec.high(EditorView.theme({
   },
   '.cm-sx-text': { border: '1px solid rgba(128, 128, 128, 0.35)', padding: '0 10px' },
   // While searching, the "same word as the selection" highlight would mix its colour with the matches.
-  '&:has(.cm-sx) .cm-selectionMatch': { backgroundColor: 'transparent' },
+  '&:has(.cm-sx) .cm-selectionMatch': { backgroundColor: 'transparent !important' },
   // Matches in the document: all of them, and the current one stronger.
   '.cm-searchMatch': {
     backgroundColor: 'rgba(250, 204, 21, 0.28)',
@@ -228,5 +283,6 @@ const panelTheme = Prec.high(EditorView.theme({
   },
 }))
 
-// Extension to add to an editor (its keymap must include searchKeymap).
-export const editorSearch = [search({ top: true, createPanel }), panelTheme]
+export function createEditorSearch() {
+  return [search({ top: true, createPanel }), searchMatchState, matchIndexer, keymap.of(searchKeymap), panelTheme]
+}

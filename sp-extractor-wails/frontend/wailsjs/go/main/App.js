@@ -194,6 +194,10 @@ export function SaveAutoCompletes(arg1) {
   return window['go']['main']['App']['SaveAutoCompletes'](arg1);
 }
 
+export function SaveCSV(arg1, arg2) {
+  return window['go']['main']['App']['SaveCSV'](arg1, arg2);
+}
+
 export function SaveConnection(arg1) {
   return window['go']['main']['App']['SaveConnection'](arg1);
 }

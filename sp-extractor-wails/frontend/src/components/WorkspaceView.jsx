@@ -49,7 +49,7 @@ async function go() {
 }
 
 function objKey(obj) {
-  return `${obj.schema}|${obj.parentName || ''}|${obj.name}|${obj.type}`
+  return `${obj.schema}|${obj.parentName || ''}|${obj.name}|${obj.type}${obj.routineId ? `|${obj.routineId}` : ''}`
 }
 
 export default function WorkspaceView({
@@ -109,6 +109,10 @@ export default function WorkspaceView({
   const reqRef = useRef(0)
   const searchTimer = useRef(null)
   const defCacheRef = useRef(new Map())
+  const previewRequestRef = useRef(0)
+  const previewConnectionRef = useRef(connInfo)
+  previewConnectionRef.current = connInfo
+  useEffect(() => () => { previewRequestRef.current++ }, [])
 
   const [previewObj, setPreviewObj] = useState(null)
   const [previewDef, setPreviewDef] = useState('')
@@ -131,6 +135,16 @@ export default function WorkspaceView({
     try { localStorage.setItem('navCollapsed', next ? '1' : '0') } catch { /* storage unavailable */ }
     return next
   })
+  const [procedures, setProcedures] = useState([])
+  const [procedureCatalogVersion, setProcedureCatalogVersion] = useState(0)
+  useEffect(() => {
+    let cancelled = false
+    setProcedures([])
+    if (connInfo) go().then(api => api.ListObjects(workspaceId, 'STORED_PROCEDURE', '', 0)).then(list => {
+      if (!cancelled) setProcedures(list || [])
+    }).catch(() => { /* References remain plain text when metadata is unavailable. */ })
+    return () => { cancelled = true }
+  }, [connInfo, workspaceId, procedureCatalogVersion])
 
   // Track previous connection to trigger auto-load or clear
   const prevConnRef = useRef(connInfo)
@@ -290,6 +304,7 @@ export default function WorkspaceView({
   }, [connInfo, loadObjects])
 
   const refreshObjects = () => {
+    if (objType === 'STORED_PROCEDURE') setProcedureCatalogVersion(version => version + 1)
     cacheRef.current.delete(objType)
     totalCountCacheRef.current.delete(objType)
     loadObjects(objType, connInfo, true, search)
@@ -297,6 +312,7 @@ export default function WorkspaceView({
 
   const handleTypeChange = (type) => {
     if (type === objType) return
+    previewRequestRef.current++
     clearTimeout(searchTimer.current)
     setObjType(type)
     setSearch('')
@@ -341,6 +357,9 @@ export default function WorkspaceView({
   }
 
   const handlePreview = async (obj) => {
+    const request = ++previewRequestRef.current
+    const connection = connInfo
+    const isCurrent = () => request === previewRequestRef.current && connection === previewConnectionRef.current
     const k = objKey(obj)
     setPreviewObj(obj)
     setPreviewError('')
@@ -363,16 +382,18 @@ export default function WorkspaceView({
     try {
       const api = await go()
       const filled = await api.GetDefinition(workspaceId, obj)
+      if (!isCurrent()) return
       defCacheRef.current.set(k, filled.definition)
       setPreviewDef(filled.definition)
     } catch (e) {
-      setPreviewError(e.toString())
+      if (isCurrent()) setPreviewError(e.toString())
     } finally {
-      setPreviewLoading(false)
+      if (isCurrent()) setPreviewLoading(false)
     }
   }
 
   const closePreview = () => {
+    previewRequestRef.current++
     setPreviewObj(null)
     setPreviewDef('')
     setPreviewError('')
@@ -511,6 +532,16 @@ export default function WorkspaceView({
       loadObjects(targetObj.type, connInfo, false, '')
     }
     handlePreview(targetObj)
+  }
+
+  const handleOpenProcedure = (object) => {
+    if (!connInfo || object.type !== 'STORED_PROCEDURE') return
+    setView('objects')
+    handleTypeChange('STORED_PROCEDURE')
+    setRelationsObj(null)
+    setScriptsObj(null)
+    setDebugObj(null)
+    handlePreview(object)
   }
 
   const handleOpenTableRelations = async (tableRef) => {
@@ -686,6 +717,8 @@ export default function WorkspaceView({
             active={isActive && view === 'query'}
             onOpenInQuery={openScriptInQuery}
             onOpenTableDefinition={handleOpenTableDefinition}
+            procedures={procedures}
+            onOpenProcedure={handleOpenProcedure}
             onOpenTableRelations={handleOpenTableRelations}
             onOpenTableScripts={handleOpenTableScripts}
             onDirtyChange={(dirty) => onDirtyChange?.(workspaceId, dirty)}
@@ -871,6 +904,8 @@ export default function WorkspaceView({
                     <PreviewPanel
                       workspaceId={workspaceId}
                       obj={previewObj}
+                      procedures={procedures}
+                      onOpenProcedure={handleOpenProcedure}
                       dbType={connInfo?.dbType || 'SQL_SERVER'}
                       typeLabel={OBJECT_TYPES.find(t => t.value === objType)?.label || objType}
                       definition={previewDef}
