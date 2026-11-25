@@ -46,7 +46,6 @@ import {
   history,
   defaultKeymap,
   historyKeymap,
-  insertNewlineAndIndent,
   addCursorAbove,
   addCursorBelow,
   copyLineDown,
@@ -64,6 +63,7 @@ import { createChangeTracking } from '../utils/editorChanges'
 import { createEditorOverview } from '../utils/editorOverview'
 import { createProcedureLinks } from '../utils/procedureLinks'
 import { bookmarkState, createEditorBookmarks } from '../utils/editorBookmarks'
+import { insertNewlineKeepingIndent } from '../utils/editorIndentation'
 
 // Dialects with case-insensitive identifiers so names aren't auto-quoted
 const customMSSQL = SQLDialect.define({
@@ -639,7 +639,7 @@ export default function SqlEditor({
         if (completionStatus(view.state)) {
           closeCompletion(view)
         }
-        return insertNewlineAndIndent(view)
+        return insertNewlineKeepingIndent(view)
       },
     }, {
       key: 'Shift-Tab',
