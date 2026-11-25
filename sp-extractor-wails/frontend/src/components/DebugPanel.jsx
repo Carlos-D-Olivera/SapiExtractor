@@ -23,7 +23,7 @@ const BRANCH_STYLE = {
   SALE: 'bg-slate-500/15 text-slate-300 border-slate-500/40',
 }
 const BRANCH_LABEL = {
-  THEN: 'entró (THEN)', ELSE: 'entró (ELSE)', SALTADO: 'no entró',
+  THEN: 'entró (THEN)', ELSE: 'no cumplió (ELSE)', SALTADO: 'no entró',
   ENTRA: 'entra al ciclo', SALE: 'sale del ciclo',
 }
 

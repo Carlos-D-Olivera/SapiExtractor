@@ -65,6 +65,61 @@ func TestIfElseBranch(t *testing.T) {
 	}
 }
 
+func TestElseIfChainWithBeginInOffsets(t *testing.T) {
+	src := `CREATE PROC dbo.p @action varchar(20) AS
+IF (@action = 'first') BEGIN
+    SELECT 1;
+END ELSE IF (@action = 'second') BEGIN
+    SELECT 2;
+END ELSE IF (@action = 'third') BEGIN
+    DECLARE @x int = 3;
+    SELECT @x;
+END
+SELECT 4;`
+	var events []rawEvent
+	for _, action := range []string{"first", "second", "third"} {
+		text := "IF (@action = '" + action + "')"
+		e := stmt(src, text, 1)
+		// SQL Server may include the same-line BEGIN in the source range,
+		// although the event text only contains the IF predicate.
+		e.OffsetEnd += int64(len(" BEGIN") * 2)
+		events = append(events, e)
+	}
+	events = append(events, stmt(src, "DECLARE @x int = 3;", 1),
+		stmt(src, "SELECT @x;", 1), stmt(src, "SELECT 4;", 1))
+	steps := flat(t, src, events)
+	for i, want := range []string{"ELSE", "ELSE", "THEN"} {
+		if steps[i].Branch != want {
+			t.Errorf("condition %d: branch = %q, want %q", i, steps[i].Branch, want)
+		}
+	}
+}
+
+func TestConditionBodyIgnoresPredicateContents(t *testing.T) {
+	for _, predicate := range []string{
+		"@action = 'BEGIN SELECT IF'",
+		"EXISTS (SELECT 1 FROM t WHERE a = 'BEGIN')",
+		"@begin = 1 /* BEGIN */ AND @select = 2 -- BEGIN\n",
+		"[BEGIN] = 1",
+		"UPDATE([column])",
+		"@a = 1 /* outer /* BEGIN */ SELECT */",
+	} {
+		for _, begin := range []string{"", "BEGIN /* body */\n"} {
+			src := "CREATE PROC dbo.p AS\nIF " + predicate + "\n" + begin + "SELECT 42;\n"
+			if begin != "" {
+				src += "END\n"
+			}
+			steps := flat(t, src, []rawEvent{
+				stmt(src, "IF "+predicate, 1),
+				stmt(src, "SELECT 42;", 1),
+			})
+			if steps[0].Branch != "THEN" {
+				t.Errorf("predicate %q, begin %q: branch = %q, want THEN", predicate, begin, steps[0].Branch)
+			}
+		}
+	}
+}
+
 func TestIfSkippedAndNoBegin(t *testing.T) {
 	src := "CREATE PROCEDURE dbo.p AS\nIF @x > 0\n    UPDATE T SET a = 1;\nSELECT 2;"
 	taken := flat(t, src, []rawEvent{stmt(src, "IF @x > 0", 1), stmt(src, "UPDATE T SET a = 1;", 1), stmt(src, "SELECT 2;", 1)})

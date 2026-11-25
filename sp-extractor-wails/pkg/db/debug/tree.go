@@ -191,10 +191,17 @@ func skipTrivia(rs []rune, i int) int {
 			}
 		case rs[i] == '/' && i+1 < len(rs) && rs[i+1] == '*':
 			i += 2
-			for i+1 < len(rs) && !(rs[i] == '*' && rs[i+1] == '/') {
-				i++
+			for depth := 1; i < len(rs) && depth > 0; {
+				if i+1 < len(rs) && rs[i] == '/' && rs[i+1] == '*' {
+					depth++
+					i += 2
+				} else if i+1 < len(rs) && rs[i] == '*' && rs[i+1] == '/' {
+					depth--
+					i += 2
+				} else {
+					i++
+				}
 			}
-			i += 2
 		default:
 			return i
 		}
@@ -235,15 +242,85 @@ func prevWord(rs []rune, i int) string {
 	return ""
 }
 
-// bodyStarts lists the positions where the first statement of the block that
-// follows a condition ending at condEnd may begin (with or without BEGIN).
-func bodyStarts(rs []rune, condEnd int) []int {
-	t := skipTrivia(rs, condEnd)
-	starts := []int{t}
-	if wordAt(rs, t, "BEGIN") {
-		starts = append(starts, skipTrivia(rs, t+len("BEGIN")))
+// conditionBody finds the first statement after an IF/WHILE predicate.
+// XE's end offset can include BEGIN (or more of the block), so it is not
+// necessarily the end of the predicate. Parenthesized subqueries, literals
+// and comments must not be mistaken for the start of the body.
+func conditionBody(rs []rune, start int) int {
+	start = skipTrivia(rs, start)
+	if wordAt(rs, start, "ELSE") {
+		start = skipTrivia(rs, start+len("ELSE"))
 	}
-	return starts
+	keyword := ""
+	for _, candidate := range []string{"IF", "WHILE"} {
+		if wordAt(rs, start, candidate) {
+			keyword = candidate
+		}
+	}
+	if keyword == "" {
+		return -1
+	}
+	depth := 0
+	for i := start + len(keyword); i < len(rs); {
+		i = skipTrivia(rs, i)
+		if i >= len(rs) {
+			break
+		}
+		switch rs[i] {
+		case '\'', '"', '[':
+			end := rs[i]
+			if end == '[' {
+				end = ']'
+			}
+			i++
+			for i < len(rs) {
+				if rs[i] != end {
+					i++
+				} else if i+1 < len(rs) && rs[i+1] == end {
+					i += 2
+				} else {
+					i++
+					break
+				}
+			}
+		case '(':
+			depth++
+			i++
+		case ')':
+			depth--
+			i++
+		default:
+			if isIdentRune(rs[i]) || rs[i] == '@' || rs[i] == '#' || rs[i] == '$' {
+				j := i + 1
+				for j < len(rs) && (isIdentRune(rs[j]) || rs[j] == '@' || rs[j] == '#' || rs[j] == '$') {
+					j++
+				}
+				if depth == 0 && i > start {
+					// UPDATE(column) is a predicate function in triggers,
+					// not an UPDATE statement.
+					after := skipTrivia(rs, j)
+					if strings.EqualFold(string(rs[i:j]), "UPDATE") && after < len(rs) && rs[after] == '(' {
+						i = j
+						continue
+					}
+					switch strings.ToUpper(string(rs[i:j])) {
+					case "BEGIN":
+						return skipTrivia(rs, j)
+					case "DECLARE", "SELECT", "INSERT", "UPDATE", "DELETE", "EXEC", "EXECUTE",
+						"SET", "IF", "WHILE", "RETURN", "PRINT", "RAISERROR", "THROW",
+						"WITH", "WAITFOR", "BREAK", "CONTINUE", "MERGE":
+						return i
+					case "END", "ELSE":
+						return -1
+					}
+				}
+				i = j
+			} else {
+				i++
+			}
+		}
+	}
+	return -1
 }
 
 // nextInBlock is the next executed statement of the same procedure at the same
@@ -295,17 +372,16 @@ func annotateBranches(steps []*Step, srcs map[string]*srcInfo) {
 		if next == nil {
 			continue
 		}
-		if next.start >= st.start && next.start < st.end {
-			st.Note = strings.TrimSpace(st.Note + " rango ambiguo: no se pudo deducir la rama")
+		if next.start < 0 {
 			continue
 		}
 		rs := srcs[st.SourceKey].idx.runes
-		taken := false
-		for _, p := range bodyStarts(rs, st.end) {
-			if next.start == p {
-				taken = true
-			}
+		body := conditionBody(rs, st.start)
+		if body < 0 {
+			st.Note = strings.TrimSpace(st.Note + " rango ambiguo: no se pudo deducir la rama")
+			continue
 		}
+		taken := skipTrivia(rs, next.start) == body
 		switch {
 		case kind == "WHILE" && taken:
 			st.Branch = "ENTRA"
