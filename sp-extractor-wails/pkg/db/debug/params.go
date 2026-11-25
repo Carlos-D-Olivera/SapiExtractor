@@ -15,6 +15,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"sp-extractor-wails/pkg/db/extractors"
 )
@@ -62,7 +63,117 @@ func ListParams(ctx context.Context, conn *sql.DB, schema, name string) ([]Param
 		p.Unsupported = tableType || cursorRef
 		out = append(out, p)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	// SQL Server only maintains has_default_value for CLR procedures.
+	// T-SQL defaults must be read from the module's declaration.
+	var definition sql.NullString
+	if err := conn.QueryRowContext(ctx, `SELECT OBJECT_DEFINITION(OBJECT_ID(QUOTENAME(@p1) + N'.' + QUOTENAME(@p2)))`, schema, name).Scan(&definition); err != nil {
+		return nil, fmt.Errorf("read procedure defaults: %w", err)
+	}
+	defaults := declaredDefaults(definition.String)
+	for i := range out {
+		out[i].HasDefault = out[i].HasDefault || defaults[strings.ToLower(out[i].Name)]
+	}
+	return out, nil
+}
+
+// declaredDefaults inspects only the parameter header, never assignments in the
+// body. Comments, quoted identifiers and literals cannot introduce delimiters.
+func declaredDefaults(definition string) map[string]bool {
+	tokens := declarationTokens(definition)
+	defaults := map[string]bool{}
+	inProc := false
+	param := ""
+	depth := 0
+	for _, token := range tokens {
+		lower := strings.ToLower(token)
+		if !inProc {
+			inProc = lower == "proc" || lower == "procedure"
+			continue
+		}
+		if depth == 0 {
+			switch lower {
+			case "as", "with", "for":
+				return defaults
+			case ",":
+				param = ""
+			case "=":
+				if param != "" {
+					defaults[param] = true
+				}
+			}
+			if strings.HasPrefix(token, "@") && param == "" {
+				param = lower
+			}
+		}
+		switch token {
+		case "(":
+			depth++
+		case ")":
+			depth--
+		}
+	}
+	return defaults
+}
+
+func declarationTokens(text string) []string {
+	r := []rune(text)
+	var tokens []string
+	for i := 0; i < len(r); {
+		switch {
+		case unicode.IsSpace(r[i]):
+			i++
+		case r[i] == '-' && i+1 < len(r) && r[i+1] == '-':
+			for i < len(r) && r[i] != '\n' {
+				i++
+			}
+		case r[i] == '/' && i+1 < len(r) && r[i+1] == '*':
+			i += 2
+			for depth := 1; i < len(r) && depth > 0; {
+				if i+1 < len(r) && r[i] == '/' && r[i+1] == '*' {
+					depth++
+					i += 2
+				} else if i+1 < len(r) && r[i] == '*' && r[i+1] == '/' {
+					depth--
+					i += 2
+				} else {
+					i++
+				}
+			}
+		case r[i] == '\'' || r[i] == '"' || r[i] == '[':
+			start, end := i, r[i]
+			if end == '[' {
+				end = ']'
+			}
+			i++
+			for i < len(r) {
+				if r[i] != end {
+					i++
+				} else if i+1 < len(r) && r[i+1] == end {
+					i += 2
+				} else {
+					i++
+					break
+				}
+			}
+			tokens = append(tokens, string(r[start:i]))
+		case unicode.IsLetter(r[i]) || unicode.IsDigit(r[i]) || strings.ContainsRune("@_#$", r[i]):
+			start := i
+			for i < len(r) && (unicode.IsLetter(r[i]) || unicode.IsDigit(r[i]) || strings.ContainsRune("@_#$", r[i])) {
+				i++
+			}
+			tokens = append(tokens, string(r[start:i]))
+		default:
+			tokens = append(tokens, string(r[i]))
+			i++
+		}
+	}
+	return tokens
 }
 
 func quoteIdent(s string) string { return "[" + strings.ReplaceAll(s, "]", "]]") + "]" }

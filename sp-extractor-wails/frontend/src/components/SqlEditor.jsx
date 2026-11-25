@@ -46,7 +46,6 @@ import {
   history,
   defaultKeymap,
   historyKeymap,
-  insertNewlineAndIndent,
   addCursorAbove,
   addCursorBelow,
   copyLineDown,
@@ -63,6 +62,8 @@ import { createEditorSearch } from '../utils/editorSearch'
 import { createChangeTracking } from '../utils/editorChanges'
 import { createEditorOverview } from '../utils/editorOverview'
 import { createProcedureLinks } from '../utils/procedureLinks'
+import { bookmarkState, createEditorBookmarks } from '../utils/editorBookmarks'
+import { insertNewlineKeepingIndent } from '../utils/editorIndentation'
 
 // Dialects with case-insensitive identifiers so names aren't auto-quoted
 const customMSSQL = SQLDialect.define({
@@ -446,6 +447,8 @@ export default function SqlEditor({
   onToggleResults,
   viewRef: providedViewRef,
   onEditorError,
+  bookmarks,
+  onBookmarksChange,
   procedures,
   onOpenProcedure,
   fontSize = 12,
@@ -480,6 +483,8 @@ export default function SqlEditor({
   const onOpenProcedureRef = useRef(onOpenProcedure)
   onOpenProcedureRef.current = onOpenProcedure
   const onChangeRef = useRef(onChange)
+  const onBookmarksChangeRef = useRef(onBookmarksChange)
+  onBookmarksChangeRef.current = onBookmarksChange
   const onRunRef = useRef(onRun)
   const onAltF1Ref = useRef(onAltF1)
   const onSelectTop100Ref = useRef(onSelectTop100)
@@ -634,7 +639,7 @@ export default function SqlEditor({
         if (completionStatus(view.state)) {
           closeCompletion(view)
         }
-        return insertNewlineAndIndent(view)
+        return insertNewlineKeepingIndent(view)
       },
     }, {
       key: 'Shift-Tab',
@@ -730,6 +735,7 @@ export default function SqlEditor({
           highlightSelectionMatches(),
           createEditorSearch(),
           createChangeTracking(openedSql ?? value ?? ''),
+          createEditorBookmarks(bookmarks),
           createEditorOverview({ trackChanges: true }),
           procedureComp.current.of(createProcedureLinks({ procedures, dbType, onOpenProcedure: object => onOpenProcedureRef.current?.(object) })),
           keymap.of([
@@ -783,6 +789,9 @@ export default function SqlEditor({
           }),
           EditorView.updateListener.of(u => {
             if (u.docChanged) onChangeRef.current?.(u.state.doc.toString())
+            if (u.startState.field(bookmarkState) !== u.state.field(bookmarkState)) {
+              onBookmarksChangeRef.current?.(u.state.field(bookmarkState))
+            }
           }),
         ],
       }),
