@@ -10,6 +10,21 @@ const server = await createServer({
 })
 after(() => server.close())
 const { ResultArea } = await server.ssrLoadModule('/src/components/QueryWorkspace.jsx')
+const { default: BookmarkToolbar } = await server.ssrLoadModule('/src/components/BookmarkToolbar.jsx')
+
+test('shows bookmark controls only for procedure scripts', () => {
+  const render = sql => renderToStaticMarkup(createElement(BookmarkToolbar, {
+    sql, positions: [0], viewRef: { current: null },
+  }))
+  assert.equal(render('SELECT 1'), '')
+  const html = render('ALTER PROC dbo.p AS SELECT 1')
+  for (const label of [
+    'Agregar marcador en la línea del cursor',
+    'Quitar marcador de la línea del cursor',
+    'Marcador anterior',
+    'Marcador siguiente',
+  ]) assert.ok(html.includes(label), label)
+})
 
 function renderResult(result, activeResultTab = 'results', error = '') {
   return renderToStaticMarkup(createElement(ResultArea, {

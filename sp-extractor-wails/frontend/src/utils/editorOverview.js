@@ -3,6 +3,7 @@ import { EditorSelection } from '@codemirror/state'
 import { foldedRanges, unfoldEffect } from '@codemirror/language'
 import { searchMatchState } from './editorSearch.js'
 import { changedLineState } from './editorChanges.js'
+import { bookmarkState, procedureScriptState } from './editorBookmarks.js'
 const noChanges = []
 
 export function revealEditorRange(view, from, to = from) {
@@ -30,11 +31,12 @@ export function createEditorOverview({ trackChanges = false } = {}) {
     '.cm-overview-match': { left: '1px', background: '#facc15' },
     '.cm-overview-change': { right: '1px', background: '#4ade80' },
     '.cm-overview-deleted': { background: '#f87171' },
+    '.cm-overview-bookmark': { left: '10px', width: '6px', height: '7px', minHeight: '7px', background: '#c084fc', clipPath: 'polygon(0 0, 100% 0, 100% 100%, 50% 70%, 0 100%)' },
     '.cm-overview-mark:focus-visible': { outline: '1px solid white', zIndex: '1' },
   }), ViewPlugin.fromClass(class {
     constructor(view) {
       this.view = view
-      this.dom = document.createElement('div'); this.dom.className = 'cm-overview'; this.dom.setAttribute('aria-label', 'Navegador de coincidencias y cambios'); this.dom.tabIndex = -1
+      this.dom = document.createElement('div'); this.dom.className = 'cm-overview'; this.dom.setAttribute('aria-label', 'Navegador de coincidencias, cambios y marcadores'); this.dom.tabIndex = -1
       view.dom.append(this.dom)
       this.viewport = document.createElement('div'); this.viewport.className = 'cm-overview-viewport'
       this.viewport.tabIndex = 0; this.viewport.title = 'Arrastra para desplazarte'
@@ -114,7 +116,7 @@ export function createEditorOverview({ trackChanges = false } = {}) {
     }
     update(update) {
       const before = update.startState, after = update.state
-      if (update.docChanged || update.viewportChanged || update.geometryChanged || before.field(searchMatchState) !== after.field(searchMatchState) || before.field(changedLineState, false) !== after.field(changedLineState, false)) this.measure()
+      if (update.docChanged || update.viewportChanged || update.geometryChanged || before.field(searchMatchState) !== after.field(searchMatchState) || before.field(changedLineState, false) !== after.field(changedLineState, false) || before.field(bookmarkState, false) !== after.field(bookmarkState, false)) this.measure()
     }
     measure() {
       this.view.requestMeasure({ key: this, read: view => {
@@ -134,18 +136,21 @@ export function createEditorOverview({ trackChanges = false } = {}) {
       this.viewport.setAttribute('aria-valuenow', String(Math.round(fraction * 100)))
       const matches = state.field(searchMatchState).matches
       const changes = trackChanges ? state.field(changedLineState, false) || noChanges : noChanges
+      const bookmarks = state.field(procedureScriptState, false) ? state.field(bookmarkState, false) || noChanges : noChanges
       // Only rebuild marks when their source or geometry changes, never on scrolling alone.
-      if (matches === this.matches && changes === this.changes && height === this.height && count === this.lineCount) return
+      if (matches === this.matches && changes === this.changes && bookmarks === this.bookmarks && height === this.height && count === this.lineCount) return
+      this.bookmarks = bookmarks
       this.matches = matches; this.changes = changes; this.height = height; this.lineCount = count
       this.dom.querySelectorAll('button').forEach(node => node.remove())
       const buckets = new Map()
       const add = (line, kind, range) => {
         const y = Math.max(0, Math.min(height - 3, Math.floor((line - 1) / Math.max(1, count - 1) * (height - 3))))
-        const key = `${kind === 'match' ? 'match' : kind === 'deleted' ? 'deleted' : 'change'}:${y}`
+        const key = `${kind}:${y}`
         if (!buckets.has(key)) buckets.set(key, { y, kind, ranges: [] })
         buckets.get(key).ranges.push(range)
       }
       for (const match of matches) add(state.doc.lineAt(match.from).number, 'match', match)
+      for (const pos of bookmarks) add(state.doc.lineAt(pos).number, 'bookmark', { from: pos, to: pos })
       for (const change of changes) {
         // A changed block spans the overview; cap drawing work to its pixel height.
         const step = Math.max(1, Math.floor((change.toLine - change.fromLine) / Math.max(1, height)))
@@ -154,10 +159,10 @@ export function createEditorOverview({ trackChanges = false } = {}) {
       const fragment = document.createDocumentFragment()
       for (const { y, kind, ranges } of buckets.values()) {
         const node = document.createElement('button')
-        node.type = 'button'; node.className = `cm-overview-mark ${kind === 'match' ? 'cm-overview-match' : 'cm-overview-change'}${kind === 'deleted' ? ' cm-overview-deleted' : ''}`
+        node.type = 'button'; node.className = `cm-overview-mark ${kind === 'bookmark' ? 'cm-overview-bookmark' : kind === 'match' ? 'cm-overview-match' : 'cm-overview-change'}${kind === 'deleted' ? ' cm-overview-deleted' : ''}`
         node.style.top = `${y}px`
         const line = state.doc.lineAt(ranges[0].from).number
-        node.title = `${kind === 'match' ? 'Coincidencia' : kind === 'deleted' ? 'Eliminación' : 'Cambio'} · línea ${line}${ranges.length > 1 ? ` (${ranges.length} marcas; pulsa para recorrer)` : ''}`
+        node.title = `${kind === 'bookmark' ? 'Marcador' : kind === 'match' ? 'Coincidencia' : kind === 'deleted' ? 'Eliminación' : 'Cambio'} · línea ${line}${ranges.length > 1 ? ` (${ranges.length} marcas; pulsa para recorrer)` : ''}`
         node.setAttribute('aria-label', node.title)
         let next = 0
         node.onclick = event => { event.stopPropagation(); const range = ranges[next++ % ranges.length]; revealEditorRange(this.view, range.from, range.to) }

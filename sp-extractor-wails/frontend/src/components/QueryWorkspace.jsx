@@ -2,6 +2,7 @@ import { useState, useCallback, useRef, useEffect } from 'react'
 import { Play, Plus, X, Loader2, AlertCircle, Ban, Clock, Table2, Trash2, Sparkles, FileCode2, FileSpreadsheet, Check, History, RotateCcw, Save, MessageSquare, Copy } from 'lucide-react'
 import clsx from 'clsx'
 import SqlEditor, { getIdentifierAtCursor, stripQuotes } from './SqlEditor'
+import BookmarkToolbar from './BookmarkToolbar'
 import { getStoredAutocompletes, loadStoredAutocompletes } from './AutocompletesModal'
 import InsertScriptModal from './InsertScriptModal'
 import CsvExportModal from './CsvExportModal'
@@ -955,6 +956,7 @@ export default function QueryWorkspace({
               </button>
             </div>
 
+            <BookmarkToolbar sql={active.sql} positions={active.bookmarks} viewRef={editorRef} />
             <div className="flex-1" />
             <span className="text-[10px] text-slate-600">F5 ejecuta · selección = solo eso · Ctrl+R resultados</span>
           </div>
@@ -973,6 +975,8 @@ export default function QueryWorkspace({
                 key={active.id}
                 value={active.sql}
                 openedSql={active.openedSql}
+                bookmarks={active.bookmarks}
+                onBookmarksChange={bookmarks => patchTab(active.id, { bookmarks })}
                 procedures={procedures}
                 onOpenProcedure={onOpenProcedure}
                 onChange={sqlText => patchTab(active.id, { sql: sqlText })}
